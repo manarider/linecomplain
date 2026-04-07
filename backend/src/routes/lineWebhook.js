@@ -136,7 +136,7 @@ const sendWelcomeMessage = async (replyToken, displayName) => {
     messages: [
       {
         type: 'text',
-        text: `สวัสดีครับ คุณ${displayName} 👋\nยินดีต้อนรับสู่ระบบรับเรื่องร้องทุกข์\n\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตรวจสอบสถานะ" หรือ เลขที่คำร้อง เพื่อติดตามสถานะครับ`,
+        text: `สวัสดีครับ คุณ${displayName} 👋\nยินดีต้อนรับสู่ระบบรับเรื่องร้องทุกข์\n\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ`,
       },
     ],
   });
@@ -176,7 +176,7 @@ const handleEvent = async (event) => {
 
       await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `สวัสดีครับ 👋 ระบบรับเรื่องร้องทุกข์พร้อมใช้งานแล้ว\nพิมพ์ "ร้องเรียน" เพื่อแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ` }],
+        messages: [{ type: 'text', text: `สวัสดีครับ 👋 ระบบรับเรื่องร้องทุกข์พร้อมใช้งานแล้ว\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ` }],
       });
       return;
     }
@@ -205,9 +205,9 @@ const handleEvent = async (event) => {
     const text = event.message.text.trim();
     const replyToken = event.replyToken;
 
-    // ── คำสั่ง "ร้องเรียน" หรือ "แจ้งเรื่อง" ─────────────
+    // ── คำสั่ง "แจ้งเรื่อง" ────────────────────────────────
     // ฝัง groupId ใน LIFF URL ผ่าน query string เพื่อให้ ticketRoutes รับได้
-    if (text === 'ร้องเรียน' || text === 'แจ้งเรื่อง') {
+    if (text === 'แจ้งเรื่อง') {
       const gid = event.source.groupId || '';
       const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}${gid ? '?gid=' + gid : ''}`;
       const flexMsg = createComplainFlexMessage(liffUrl);
