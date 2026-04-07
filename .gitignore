@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build output
+frontend/dist/
+
+# Uploads (user files — ไม่ commit)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# PM2
+.pm2/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nginx Routing Test — complain.nsm.go.th</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      padding: 40px 48px;
+      max-width: 540px;
+      width: 100%;
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      background: #16a34a;
+      color: #fff;
+      border-radius: 999px;
+      padding: 4px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 22px; color: #1e3a5f; margin-bottom: 10px; }
+    p  { font-size: 15px; color: #475569; line-height: 1.7; }
+    .info-box {
+      background: #f1f5f9;
+      border-left: 4px solid #3b82f6;
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 24px 0;
+      text-align: left;
+      font-size: 14px;
+      color: #334155;
+    }
+    .info-box strong { color: #1e3a5f; }
+    .info-box span   { color: #16a34a; font-weight: 600; }
+    .note {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">✓ Nginx Routing — OK</div>
+    <h1>ทดสอบ Nginx Routing สำเร็จ</h1>
+    <p>หน้านี้ถูก Serve โดย <strong>Nginx</strong> จาก Static File<br>
+       ยืนยันว่า Domain ถูกชี้มายัง Server Block ที่ถูกต้องแล้ว</p>
+
+    <div class="info-box">
+      <strong>Domain&nbsp;&nbsp;&nbsp;:</strong> <span>complain.nsm.go.th</span><br>
+      <strong>Server&nbsp;&nbsp;&nbsp;:</strong> <span>192.168.100.151</span><br>
+      <strong>App Root&nbsp;:</strong> <span>/home/complain/app/</span><br>
+      <strong>Proxy To&nbsp;:</strong> <span>localhost:5050 (Node.js)</span>
+    </div>
+
+    <p>เมื่อ Node.js (port 5050) พร้อมทำงาน<br>
+       Request ทั้งหมด (<code>/</code>) จะถูก Reverse Proxy ไปยัง Node.js อัตโนมัติ</p>
+
+    <p class="note">ไฟล์นี้อยู่ที่: /home/complain/app/test.html</p>
+  </div>
+</body>
+</html>

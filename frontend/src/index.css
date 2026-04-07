@@ -1,0 +1,70 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Sarabun', 'Helvetica Neue', Arial, sans-serif;
+  background: #f0f4f8;
+  color: #333;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* ── Status Badges ─────────────────────────────────────── */
+.status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.badge-pending    { background: #fef3c7; color: #d97706; }
+.badge-inprogress { background: #dbeafe; color: #2563eb; }
+.badge-completed  { background: #dcfce7; color: #16a34a; }
+.badge-forwarded  { background: #ede9fe; color: #7c3aed; }
+.badge-rejected   { background: #fee2e2; color: #dc2626; }
+
+/* ── Table hover ────────────────────────────────────────── */
+tbody tr:hover td { background: #f7fafc; }
+
+/* ── Hamburger: desktop hidden, mobile visible ──────────── */
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Dashboard Sidebar ──────────────────────────────────── */
+.dashboard-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+
+/* ── Mobile ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .hamburger-btn { display: flex; }
+
+  .dashboard-sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 300;
+    width: 260px;
+    transform: translateX(-100%);
+  }
+
+  .dashboard-sidebar.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.3);
+  }
+}

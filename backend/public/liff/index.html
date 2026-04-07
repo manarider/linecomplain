@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>แจ้งเรื่องร้องทุกข์</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Sarabun', 'Helvetica Neue', Arial, sans-serif;
+      background: #f0f4f8;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: #1a5f9e;
+      color: #fff;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header h1 { font-size: 1.1rem; font-weight: 700; }
+    .header p { font-size: 0.8rem; opacity: 0.85; margin-top: 2px; }
+
+    .container { padding: 16px; max-width: 480px; margin: 0 auto; }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #444;
+      margin-bottom: 6px;
+    }
+    .form-group label .required { color: #e53e3e; margin-left: 2px; }
+
+    input[type="text"],
+    input[type="tel"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      background: #fff;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: #1a5f9e;
+    }
+    textarea { resize: vertical; min-height: 100px; }
+
+    /* Photo Buttons */
+    .photo-btns { display: flex; gap: 10px; margin-bottom: 10px; }
+    .btn-photo {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 14px 8px;
+      border: 1.5px solid #1a5f9e;
+      border-radius: 8px;
+      background: #f0f7ff;
+      color: #1a5f9e;
+      font-size: 0.9rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-photo input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+      font-size: 0;
+    }
+    /* Map */
+    .btn-map {
+      width: 100%;
+      padding: 11px 14px;
+      background: #f0f7ff;
+      border: 1.5px solid #1a5f9e;
+      border-radius: 8px;
+      color: #1a5f9e;
+      font-size: 0.9rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-map.active { background: #1a5f9e; color: #fff; }
+    .btn-clear-map {
+      margin-top: 8px;
+      padding: 6px 14px;
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      border-radius: 6px;
+      color: #c53030;
+      font-size: 0.8rem;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    #map { border-radius: 8px; z-index: 0; }
+    .leaflet-container { font-family: inherit; }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .preview-item {
+      position: relative;
+      aspect-ratio: 1;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #f0f4f8;
+    }
+    .preview-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .preview-item .remove-btn {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Buttons */
+    .btn-submit {
+      width: 100%;
+      padding: 14px;
+      background: #1a5f9e;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-submit:hover { background: #154d82; }
+    .btn-submit:disabled { background: #9cb3c9; cursor: not-allowed; }
+
+    /* Loading Overlay */
+    #loadingOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.85);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+    }
+    #loadingOverlay.show { display: flex; }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #d1d5db;
+      border-top-color: #1a5f9e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Success Screen */
+    #successScreen {
+      display: none;
+      text-align: center;
+      padding: 40px 20px;
+    }
+    #successScreen.show { display: block; }
+    #successScreen .icon { font-size: 4rem; }
+    #successScreen h2 { margin: 12px 0 8px; color: #1a5f9e; }
+    #successScreen .ticket-no {
+      background: #e8f0fe;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #1a5f9e;
+      margin: 16px 0;
+    }
+    #successScreen p { font-size: 0.9rem; color: #666; }
+
+    /* Alert */
+    .alert {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .alert.show { display: block; }
+    .alert-error { background: #fff5f5; border: 1px solid #feb2b2; color: #c53030; }
+
+    /* Char counter */
+    .char-count { font-size: 0.75rem; color: #999; text-align: right; margin-top: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <p style="color:#555;font-size:0.9rem;">กำลังส่งข้อมูล...</p>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <h1>📋 แจ้งเรื่องร้องทุกข์</h1>
+    <p>กรอกข้อมูลให้ครบถ้วนเพื่อให้เจ้าหน้าที่ดำเนินการได้รวดเร็ว</p>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Success Screen (แสดงหลังส่งสำเร็จ) -->
+  <div id="successScreen">
+    <div class="card">
+      <div class="icon">✅</div>
+      <h2>ส่งเรื่องสำเร็จ!</h2>
+      <p>เลขที่คำร้องของคุณคือ</p>
+      <div class="ticket-no" id="ticketNoDisplay">-</div>
+      <p>กรุณาจดบันทึกเลขที่คำร้องไว้<br>สามารถพิมพ์เลขที่คำร้องในแชทเพื่อติดตามสถานะได้ครับ</p>
+    </div>
+  </div>
+
+  <!-- Form -->
+  <form id="complaintForm">
+
+    <!-- Alert Error -->
+    <div class="alert alert-error" id="alertError"></div>
+
+    <div class="card">
+      <div class="form-group">
+        <label>หัวข้อเรื่อง <span class="required">*</span></label>
+        <input type="text" id="subject" maxlength="100" placeholder="ระบุหัวข้อเรื่องโดยย่อ" required />
+        <div class="char-count"><span id="subjectCount">0</span>/100</div>
+      </div>
+
+      <div class="form-group">
+        <label>รายละเอียด <span class="required">*</span></label>
+        <textarea id="description" maxlength="1000" placeholder="อธิบายรายละเอียดปัญหาหรือเรื่องที่ต้องการแจ้ง..." required></textarea>
+        <div class="char-count"><span id="descCount">0</span>/1000</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label>หน่วยงานที่เกี่ยวข้อง <span style="color:#999;font-weight:400;">(ไม่แน่ใจไม่ต้องเลือกครับ)</span></label>
+        <select id="assignedDepartment">
+          <option value="">-- ไม่แน่ใจ / ไม่ระบุ --</option>
+          <option>สำนักปลัดเทศบาล</option>
+          <option>สำนักการศึกษา</option>
+          <option>สำนักคลัง</option>
+          <option>สำนักสาธารณสุขและสิ่งแวดล้อม</option>
+          <option>สำนักช่าง</option>
+          <option>สำนักการประปา</option>
+          <option>กองยุทธศาสตร์และงบประมาณ</option>
+          <option>กองสวัสดิการสังคม</option>
+          <option>กองสารสนเทศภาษีและทะเบียนทรัพย์สิน</option>
+          <option>กองการเจ้าหน้าที่</option>
+          <option>หน่วยตรวจสอบภายใน</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>เบอร์โทรศัพท์ <span class="required">*</span></label>
+        <input type="tel" id="phone" maxlength="15" placeholder="เช่น 081-234-5678" required />
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label>ตำแหน่งที่เกิดเหตุ <span style="color:#999;font-weight:400;">(ไม่บังคับ)</span></label>
+        <button type="button" class="btn-map" id="pinMapBtn">📍 ปักหมุดตำแหน่ง</button>
+        <div id="mapContainer" style="display:none; margin-top:12px;">
+          <div id="map" style="height:260px;"></div>
+          <p id="locationText" style="font-size:0.8rem;color:#555;margin-top:8px;text-align:center;"></p>
+          <button type="button" class="btn-clear-map" id="clearMapBtn">✕ ยกเลิกตำแหน่ง</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label>รูปภาพประกอบ <span style="color:#999;font-weight:400;">(ไม่บังคับ สูงสุด 5 รูป ลดขนาดอัตโนมัติ)</span></label>
+        <div class="photo-btns">
+          <label class="btn-photo">
+            📷 ถ่ายรูป
+            <input type="file" id="cameraInput" accept="image/*" capture="environment" />
+          </label>
+          <label class="btn-photo">
+            🖼 เลือกจากคลัง
+            <input type="file" id="fileInput" accept="image/*" multiple />
+          </label>
+        </div>
+        <div class="preview-grid" id="previewGrid"></div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-submit" id="submitBtn">📨 ส่งเรื่องร้องทุกข์</button>
+
+  </form>
+  <input type="hidden" id="groupId" value="" />
+</div>
+
+<script>
+  // ── ตัวแปร Global ─────────────────────────────────────────
+  let lineProfile = null;
+  let selectedFiles = [];
+
+  // ── เริ่มต้น LIFF ─────────────────────────────────────────
+  const LIFF_ID  = '%%LIFF_ID%%';  // inject โดย server.js
+  const API_BASE = '%%DOMAIN%%';   // inject โดย server.js → https://complain.nsm.go.th
+
+  liff.init({ liffId: LIFF_ID })
+    .then(async () => {
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+      // ดึงข้อมูล Profile จาก LINE
+      lineProfile = await liff.getProfile();
+
+      // รับ groupId จาก query string ?gid=Cxxx ที่ฝังมาจาก webhook
+      const urlParams = new URLSearchParams(window.location.search);
+      const gid = urlParams.get('gid');
+      if (gid && gid.startsWith('C')) {
+        document.getElementById('groupId').value = gid;
+      }
+
+      // ตรวจสอบว่า Add Friend แล้วหรือยัง
+      const friendship = await liff.getFriendship();
+      if (!friendship.friendFlag) {
+        showError('กรุณา Add Friend กับระบบแจ้งเรื่องร้องทุกข์ก่อนใช้งานครับ');
+        document.getElementById('submitBtn').disabled = true;
+      }
+    })
+    .catch((err) => {
+      console.error('LIFF init error:', err);
+      showError('LIFF Error: ' + (err.code || '') + ' ' + (err.message || String(err)));
+    });
+
+  // ── Character Counter ──────────────────────────────────────
+  document.getElementById('subject').addEventListener('input', function () {
+    document.getElementById('subjectCount').textContent = this.value.length;
+  });
+  document.getElementById('description').addEventListener('input', function () {
+    document.getElementById('descCount').textContent = this.value.length;
+  });
+
+  // ── Map ──────────────────────────────────────────────────
+  let locationData = null;
+  let leafletMap = null;
+  let leafletMarker = null;
+
+  document.getElementById('pinMapBtn').addEventListener('click', toggleMap);
+  document.getElementById('clearMapBtn').addEventListener('click', clearMap);
+
+  function toggleMap() {
+    const container = document.getElementById('mapContainer');
+    const btn = document.getElementById('pinMapBtn');
+    if (container.style.display === 'none') {
+      container.style.display = 'block';
+      btn.classList.add('active');
+      btn.textContent = '📍 กำลังโหลดแผนที่...';
+      if (!leafletMap) setTimeout(initMap, 50);
+      else { leafletMap.invalidateSize(); btn.textContent = '📍 ปักหมุดแล้ว (กดซ้ำเพื่อยกเลิก)'; }
+    } else {
+      clearMap();
+    }
+  }
+
+  function initMap() {
+    const defaultLat = 15.7047, defaultLng = 100.1489;
+    leafletMap = L.map('map').setView([defaultLat, defaultLng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(leafletMap);
+    leafletMarker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(leafletMap);
+    locationData = { lat: defaultLat, lng: defaultLng };
+    updateLocationText(defaultLat, defaultLng);
+    leafletMarker.on('dragend', function () {
+      const p = leafletMarker.getLatLng();
+      locationData = { lat: p.lat, lng: p.lng };
+      updateLocationText(p.lat, p.lng);
+    });
+    leafletMap.on('click', function (e) {
+      leafletMarker.setLatLng(e.latlng);
+      locationData = { lat: e.latlng.lat, lng: e.latlng.lng };
+      updateLocationText(e.latlng.lat, e.latlng.lng);
+    });
+    document.getElementById('pinMapBtn').textContent = '📍 ปักหมุดแล้ว (กดซ้ำเพื่อยกเลิก)';
+    // ดึง GPS ปัจจุบัน
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        leafletMap.setView([lat, lng], 17);
+        leafletMarker.setLatLng([lat, lng]);
+        locationData = { lat, lng };
+        updateLocationText(lat, lng);
+      }, function () {});
+    }
+  }
+
+  function updateLocationText(lat, lng) {
+    document.getElementById('locationText').textContent =
+      `📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}  (ลากหมุดหรือกดบนแผนที่เพื่อเปลี่ยนตำแหน่ง)`;
+  }
+
+  function clearMap() {
+    document.getElementById('mapContainer').style.display = 'none';
+    const btn = document.getElementById('pinMapBtn');
+    btn.classList.remove('active');
+    btn.textContent = '📍 ปักหมุดตำแหน่ง';
+    locationData = null;
+  }
+
+  // ── Image Compression ─────────────────────────────────────
+  function compressImage(file) {
+    return new Promise(function (resolve) {
+      const reader = new FileReader();
+      reader.onload = function (ev) {
+        const img = new Image();
+        img.onload = function () {
+          const MAX_DIM = 1920, MAX_BYTES = 1 * 1024 * 1024;
+          let w = img.width, h = img.height;
+          if (w > MAX_DIM || h > MAX_DIM) {
+            if (w > h) { h = Math.round(h * MAX_DIM / w); w = MAX_DIM; }
+            else { w = Math.round(w * MAX_DIM / h); h = MAX_DIM; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const newName = file.name.replace(/\.[^.]+$/, '.jpg');
+          const tryQ = function (q) {
+            canvas.toBlob(function (blob) {
+              if (blob.size <= MAX_BYTES || q <= 0.3) {
+                resolve(new File([blob], newName, { type: 'image/jpeg' }));
+              } else tryQ(+(q - 0.1).toFixed(1));
+            }, 'image/jpeg', q);
+          };
+          tryQ(0.85);
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ── File Input ─────────────────────────────────────────────
+  async function handleFileInput(e) {
+    const files = Array.from(e.target.files);
+    e.target.value = '';
+    if (!files.length) return;
+    const loadingP = document.querySelector('#loadingOverlay p');
+    loadingP.textContent = 'กำลังบีบอัดรูปภาพ...';
+    showLoading(true);
+    for (const f of files) await addFile(f);
+    showLoading(false);
+    loadingP.textContent = 'กำลังส่งข้อมูล...';
+  }
+  document.getElementById('fileInput').addEventListener('change', handleFileInput);
+  document.getElementById('cameraInput').addEventListener('change', handleFileInput);
+
+  async function addFile(file) {
+    if (selectedFiles.length >= 5) {
+      showError('อัปโหลดได้สูงสุด 5 รูปเท่านั้น');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      showError('รองรับเฉพาะไฟล์รูปภาพเท่านั้น');
+      return;
+    }
+    const compressed = await compressImage(file);
+    selectedFiles.push(compressed);
+    renderPreviews();
+  }
+
+  function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    renderPreviews();
+  }
+
+  function renderPreviews() {
+    const grid = document.getElementById('previewGrid');
+    grid.innerHTML = '';
+    selectedFiles.forEach((file, i) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const item = document.createElement('div');
+        item.className = 'preview-item';
+        item.innerHTML = `
+          <img src="${e.target.result}" alt="preview" />
+          <button type="button" class="remove-btn" onclick="removeFile(${i})">✕</button>
+        `;
+        grid.appendChild(item);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ── Form Submit ────────────────────────────────────────────
+  document.getElementById('complaintForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!lineProfile) {
+      showError('ไม่สามารถดึงข้อมูล LINE ได้ กรุณาลองใหม่');
+      return;
+    }
+
+    const subject = document.getElementById('subject').value.trim();
+    const description = document.getElementById('description').value.trim();
+    const phone = document.getElementById('phone').value.trim();
+    const assignedDepartment = document.getElementById('assignedDepartment').value;
+
+    if (!subject || !description || !phone) {
+      showError('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');
+      return;
+    }
+
+    // สร้าง FormData
+    const formData = new FormData();
+    formData.append('lineUserId', lineProfile.userId);
+    formData.append('displayName', lineProfile.displayName);
+    const gid = document.getElementById('groupId').value;
+    if (gid) formData.append('groupId', gid);
+    formData.append('subject', subject);
+    formData.append('description', description);
+    formData.append('phone', phone);
+    formData.append('assignedDepartment', assignedDepartment);
+    if (locationData) {
+      formData.append('lat', locationData.lat);
+      formData.append('lng', locationData.lng);
+    }
+    selectedFiles.forEach((file) => formData.append('images', file));
+
+    showLoading(true);
+    document.getElementById('submitBtn').disabled = true;
+
+    try {
+      const res = await fetch(API_BASE + '/api/tickets', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || `เกิดข้อผิดพลาด (${res.status})`);
+      }
+
+      // แสดงหน้า Success
+      showLoading(false);
+      document.getElementById('complaintForm').style.display = 'none';
+      document.getElementById('ticketNoDisplay').textContent = data.ticketNo;
+      document.getElementById('successScreen').classList.add('show');
+    } catch (err) {
+      showLoading(false);
+      document.getElementById('submitBtn').disabled = false;
+      showError(err.message || 'เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่');
+    }
+  });
+
+  // ── Helper Functions ───────────────────────────────────────
+  function showError(msg) {
+    const el = document.getElementById('alertError');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 5000);
+  }
+
+  function showLoading(show) {
+    document.getElementById('loadingOverlay').classList.toggle('show', show);
+  }
+</script>
+</body>
+</html>
