@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMe, doLogout, getSummary, getTickets } from '../api';
+import { getMe, doLogout, getSummary, getTickets, getQuotaCurrent } from '../api';
 import { TICKET_STATUS, STATUS_BADGE, FULL_ACCESS_ROLES, formatDate, DEPARTMENTS } from '../constants';
 import TicketModal from '../components/TicketModal';
 import LineGroupsPage from './LineGroupsPage';
+import ComplainantsPage from './ComplainantsPage';
+import QuotaPage from './QuotaPage';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -13,7 +15,7 @@ export default function DashboardPage() {
   const [summary, setSummary]       = useState({});
   const [tickets, setTickets]       = useState([]);
   const [pagination, setPagination] = useState({});
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState('รอรับเรื่อง');
   const [filterDept, setFilterDept]     = useState('');
   const [search, setSearch]             = useState('');
   const [page, setPage]           = useState(1);
@@ -23,6 +25,7 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeMenu, setActiveMenu]   = useState('tickets');
   const [isMobile, setIsMobile]       = useState(() => window.innerWidth <= 768);
+  const [quotaWarning, setQuotaWarning] = useState(false); // กระพริบเมนู quota
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -41,6 +44,14 @@ export default function DashboardPage() {
       .then(setUser)
       .catch(() => navigate('/login', { replace: true }));
   }, [navigate]);
+
+  // ── ตรวจโควตา LINE (superadmin เท่านั้น) ────────────────
+  useEffect(() => {
+    if (!user || user.role !== 'superadmin') return;
+    getQuotaCurrent()
+      .then(data => setQuotaWarning(data?.isWarning ?? false))
+      .catch(() => {}); // ถ้า error ไม่ต้องแจ้ง — ไม่ block UI
+  }, [user]);
 
   // ── โหลด Summary & Tickets เมื่อ filter เปลี่ยน ──────────
   const fetchData = useCallback(async (p = 1) => {
@@ -146,6 +157,27 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('line-groups'); setSidebarOpen(false); }}
             >💬 จัดการกลุ่ม LINE</div>
           )}
+          {user && user.role === 'superadmin' && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'complainants' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('complainants'); setSidebarOpen(false); }}
+            >📊 สถิติผู้ร้อง</div>
+          )}
+          {user && user.role === 'superadmin' && (
+            <div
+              style={{
+                ...S.navItem,
+                ...(activeMenu === 'quota' ? S.navItemActive : {}),
+                ...(quotaWarning && activeMenu !== 'quota' ? S.navItemBlink : {}),
+              }}
+              onClick={() => { setActiveMenu('quota'); setSidebarOpen(false); }}
+            >
+              📡 LINE Quota
+              {quotaWarning && activeMenu !== 'quota' && (
+                <span style={S.warnDot}>!</span>
+              )}
+            </div>
+          )}
         </nav>
 
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
@@ -170,7 +202,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '📊 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -187,16 +219,22 @@ export default function DashboardPage() {
           {activeMenu === 'line-groups' && (
             <LineGroupsPage showToast={showToast} />
           )}
+          {activeMenu === 'complainants' && (
+            <ComplainantsPage showToast={showToast} />
+          )}
+          {activeMenu === 'quota' && (
+            <QuotaPage showToast={showToast} />
+          )}
           {activeMenu === 'tickets' && (<>
 
           {/* Stat Cards */}
           <div style={S.statGrid}>
             {[
-              { label: 'ทั้งหมด', key: 'ทั้งหมด', status: '' },
-              { label: 'รอรับเรื่อง',       key: 'รอรับเรื่อง',       status: 'รอรับเรื่อง'       },
-              { label: 'ดำเนินการ',         key: 'ระหว่างดำเนินการ', status: 'ระหว่างดำเนินการ' },
-              { label: 'เสร็จสิ้น',         key: 'เสร็จสิ้น',         status: 'เสร็จสิ้น'         },
-              { label: 'ส่งต่อ',            key: 'ส่งต่อ',            status: 'ส่งต่อ'            },
+              { label: 'รอรับเรื่อง',   key: 'รอรับเรื่อง',   status: 'รอรับเรื่อง'       },
+              { label: 'ดำเนินการ',     key: 'ระหว่างดำเนินการ', status: 'ระหว่างดำเนินการ' },
+              { label: 'เสร็จสิ้น',     key: 'เสร็จสิ้น',     status: 'เสร็จสิ้น'         },
+              { label: 'ไม่รับคำร้อง', key: 'ไม่รับเรื่อง',   status: 'ไม่รับเรื่อง'      },
+              { label: 'ทั้งหมด',       key: 'ทั้งหมด',       status: ''                  },
             ].map(({ label, key, status }) => (
               <div
                 key={key}
@@ -328,7 +366,6 @@ const STATUS_COLOR = {
   'รอรับเรื่อง': '#d97706',
   'ระหว่างดำเนินการ': '#2563eb',
   'เสร็จสิ้น': '#16a34a',
-  'ส่งต่อ': '#7c3aed',
   'ไม่รับเรื่อง': '#dc2626',
 };
 
@@ -365,6 +402,17 @@ const S = {
   navItemActive: {
     background: 'rgba(255,255,255,0.15)',
     borderLeftColor: '#fff', fontWeight: 700,
+  },
+  navItemBlink: {
+    animation: 'blink 1.2s ease-in-out infinite',
+    background: 'rgba(245,158,11,0.2)',
+    borderLeftColor: '#f59e0b',
+  },
+  warnDot: {
+    marginLeft: 'auto', background: '#f59e0b', color: '#fff',
+    borderRadius: '50%', width: 18, height: 18,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '0.7rem', fontWeight: 800, flexShrink: 0,
   },
   btnLogout: {
     padding: '6px 14px', background: 'rgba(220,38,38,0.85)',

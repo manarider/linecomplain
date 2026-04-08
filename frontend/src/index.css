@@ -12,6 +12,12 @@ body {
   min-height: 100vh;
 }
 
+/* ── Quota warning blink animation ─────────────────────── */
+@keyframes blink {
+  0%, 100% { background: rgba(245,158,11,0.2); }
+  50%       { background: rgba(245,158,11,0.45); }
+}
+
 /* ── Status Badges ─────────────────────────────────────── */
 .status-badge {
   display: inline-block;

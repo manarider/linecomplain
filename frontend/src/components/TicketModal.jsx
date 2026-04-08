@@ -48,7 +48,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     setSaving(true);
     try {
       await forwardTicket(ticketId, { targetDepartment: forwardDept, note: forwardNote });
-      showToast(`ส่งต่อไป "${forwardDept}" สำเร็จ 📨`, 'success');
+      showToast(`ส่งต่อไป "${forwardDept}" สำเร็จ — สถานะเปลี่ยนเป็นระหว่างดำเนินการ ✅`, 'success');
       onUpdated();
       onClose();
     } catch (err) {
@@ -58,6 +58,11 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
 
   const badge = ticket ? STATUS_BADGE[ticket.status] : null;
   const canForward = user && FULL_ACCESS_ROLES.includes(user.role);
+  // staff เห็น action form เฉพาะ ticket ของหน่วยงานตัวเอง
+  const canEdit = user && (
+    FULL_ACCESS_ROLES.includes(user.role) ||
+    ticket?.assignedDepartment === user.subDepartment
+  );
 
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -137,8 +142,17 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
           )}
         </div>
 
-        {/* Action Form */}
-        {!loading && ticket && ticket.status !== 'เสร็จสิ้น' && (
+        {/* hint read-only สำหรับ staff ที่ดู ticket หน่วยงานอื่น */}
+        {!loading && ticket && ticket.status !== 'เสร็จสิ้น' && ticket.status !== 'ไม่รับเรื่อง' && !canEdit && (
+          <div style={{ padding: '10px 20px 16px', borderTop: '1px solid #e2e8f0', marginTop: 16 }}>
+            <div style={{ fontSize: '0.82rem', color: '#92400e', background: '#fef3c7', borderRadius: 8, padding: '8px 12px' }}>
+              👁️ รับข้อมูลได้อย่างเดียว — ticket นี้อยู่ในความรับผิดชอบของ <strong>{ticket.assignedDepartment}</strong>
+            </div>
+          </div>
+        )}
+
+        {/* Action Form — ซ่อนเมื่อ เสร็จสิ้น หรือ ไม่รับเรื่อง หรือ staff ดู ticket หน่วยงานอื่น */}
+        {!loading && ticket && ticket.status !== 'เสร็จสิ้น' && ticket.status !== 'ไม่รับเรื่อง' && canEdit && (
           <div style={S.actionForm}>
             <SectionTitle>⚙️ ดำเนินการ</SectionTitle>
             <select style={S.input} value={actionStatus} onChange={e => setActionStatus(e.target.value)}>
@@ -159,15 +173,15 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               </button>
               {canForward && (
                 <button style={S.btnForward} onClick={() => setShowForward(v => !v)}>
-                  📨 ส่งต่อ
+                  � ส่งต่อหน่วยงาน
                 </button>
               )}
             </div>
 
-            {/* ส่งต่อ */}
+            {/* ส่งต่อ / เปลี่ยนหน่วยงาน */}
             {showForward && canForward && (
               <div style={{ marginTop: 14 }}>
-                <SectionTitle>📨 ส่งต่อไปหน่วยงาน</SectionTitle>
+                <SectionTitle>🔀 เปลี่ยนหน่วยงานรับผิดชอบ</SectionTitle>
                 <select style={S.input} value={forwardDept} onChange={e => setForwardDept(e.target.value)}>
                   <option value="">-- เลือกหน่วยงานปลายทาง --</option>
                   {DEPARTMENTS.map(d => (
@@ -180,8 +194,11 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                   value={forwardNote}
                   onChange={e => setForwardNote(e.target.value)}
                 />
+                <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: 8 }}>
+                  ⚠️ เรื่องจะเปลี่ยนหน่วยงานและสถานะเป็น "ระหว่างดำเนินการ" โดยอัตโนมัติ
+                </div>
                 <button style={S.btnForward} disabled={saving} onClick={handleForward}>
-                  📨 ยืนยันส่งต่อ
+                  🔀 ยืนยันส่งต่อ
                 </button>
               </div>
             )}

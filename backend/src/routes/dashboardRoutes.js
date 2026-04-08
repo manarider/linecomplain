@@ -22,14 +22,16 @@ router.get('/tickets', async (req, res) => {
     // ── สร้าง filter ตามสิทธิ์ ─────────────────────────────
     const filter = {};
 
-    // staff เห็นเฉพาะงานที่ assignedDepartment ตรงกับ subDepartment ของตัวเอง
-    if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
+    // staff เห็นเฉพาะงานหน่วยงานตัวเองเมื่อดู "ระหว่างดำเนินการ" เท่านั้น
+    // แท็บอื่น (รอรับเรื่อง, เสร็จสิ้น, ไม่รับเรื่อง, ทั้งหมด) เห็นได้ทุกหน่วยงาน
+    const isStaff = !FULL_ACCESS_ROLES.includes(req.user.role);
+    if (isStaff && status === TICKET_STATUS.IN_PROGRESS) {
       filter.assignedDepartment = req.user.subDepartment;
     }
 
     // กรองเพิ่มเติมตาม query params
     if (status) filter.status = status;
-    if (department && FULL_ACCESS_ROLES.includes(req.user.role)) {
+    if (department && !isStaff) {
       filter.assignedDepartment = department;
     }
     if (search) {
@@ -72,17 +74,13 @@ router.get('/tickets', async (req, res) => {
 // ============================================================
 router.get('/tickets/summary', async (req, res) => {
   try {
-    const filter = {};
-    if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
-      filter.assignedDepartment = req.user.subDepartment;
-    }
+    const isStaff = !FULL_ACCESS_ROLES.includes(req.user.role);
 
+    // นับทุกสถานะโดยไม่กรองหน่วยงาน (รอรับเรื่อง/เสร็จสิ้น/ไม่รับเรื่องทุกคนเห็นครบ)
     const summary = await Ticket.aggregate([
-      { $match: filter },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
 
-    // แปลงเป็น object key=status, value=count
     const result = Object.values(TICKET_STATUS).reduce((acc, s) => {
       acc[s] = 0;
       return acc;
@@ -90,7 +88,17 @@ router.get('/tickets/summary', async (req, res) => {
     summary.forEach(({ _id, count }) => {
       if (_id in result) result[_id] = count;
     });
-    result['ทั้งหมด'] = Object.values(result).reduce((a, b) => a + b, 0);
+
+    // staff เห็นจำนวน ดำเนินการ เฉพาะหน่วยงานตัวเอง
+    if (isStaff) {
+      result[TICKET_STATUS.IN_PROGRESS] = await Ticket.countDocuments({
+        assignedDepartment: req.user.subDepartment,
+        status: TICKET_STATUS.IN_PROGRESS,
+      });
+    }
+
+    // ทั้งหมด = นับ tickets ทั้ง collection ไม่กรอง
+    result['ทั้งหมด'] = await Ticket.countDocuments({});
 
     res.json(result);
   } catch (err) {
@@ -108,12 +116,7 @@ router.get('/tickets/:id', async (req, res) => {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });
 
-    // staff ตรวจสิทธิ์ก่อนดู
-    if (!FULL_ACCESS_ROLES.includes(req.user.role) &&
-        ticket.assignedDepartment !== req.user.subDepartment) {
-      return res.status(403).json({ message: 'ไม่มีสิทธิ์เข้าถึงเรื่องนี้' });
-    }
-
+    // ทุก role ดูรายละเอียดได้ — การแก้ไขสถานะยังคงตรวจสิทธิ์ที่ PATCH /status
     res.json(ticket);
   } catch (err) {
     console.error('GET /dashboard/tickets/:id error:', err.message);
@@ -199,14 +202,14 @@ router.patch(
 
       const previousDepartment = ticket.assignedDepartment;
 
-      // เปลี่ยนหน่วยงานและสถานะเป็น "ส่งต่อ"
+      // เปลี่ยนหน่วยงาน และตั้งสถานะเป็น "ระหว่างดำเนินการ" (ไปอยู่ใน tab ดำเนินการ)
       ticket.assignedDepartment = targetDepartment;
-      ticket.status = TICKET_STATUS.FORWARDED;
+      ticket.status = TICKET_STATUS.IN_PROGRESS;
       ticket.assignedToId = req.user.userId;
       ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
 
       ticket.history.push({
-        status: TICKET_STATUS.FORWARDED,
+        status: TICKET_STATUS.IN_PROGRESS,
         note: `ส่งต่อจาก ${previousDepartment} ไป ${targetDepartment}${note ? `: ${note}` : ''}`,
         updatedById: req.user.userId,
         updatedByName: `${req.user.firstName} ${req.user.lastName}`,
@@ -228,6 +231,99 @@ router.patch(
     } catch (err) {
       console.error('PATCH /dashboard/tickets/:id/forward error:', err.message);
       res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งต่อเรื่อง' });
+    }
+  }
+);
+
+// ============================================================
+// GET /api/dashboard/complainants
+// สถิติผู้ร้อง — เฉพาะ superadmin
+// Query: ?year=2568  (พุทธศักราช)
+// ============================================================
+router.get(
+  '/complainants',
+  requireRole('superadmin'),
+  async (req, res) => {
+    try {
+      const { year } = req.query; // พุทธศักราช เช่น 2568
+
+      // ── รายชื่อปีที่มีคำร้อง (ค.ศ.) ──────────────────────
+      const yearDocs = await Ticket.aggregate([
+        { $group: { _id: { $year: '$createdAt' } } },
+        { $sort: { _id: -1 } },
+      ]);
+      const availableYears = yearDocs.map(d => d._id); // ค.ศ.
+
+      // ── สร้าง match filter ตามปีที่เลือก ─────────────────
+      const match = {};
+      if (year) {
+        const ce = Number(year) - 543; // แปลง พ.ศ. → ค.ศ.
+        match.createdAt = {
+          $gte: new Date(`${ce}-01-01T00:00:00.000Z`),
+          $lt:  new Date(`${ce + 1}-01-01T00:00:00.000Z`),
+        };
+      }
+
+      // ── aggregate ตาม lineUserId ──────────────────────────
+      const rows = await Ticket.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: '$lineUserId',
+            displayName: { $last: '$displayName' },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1 } },
+      ]);
+
+      res.json({ rows, availableYears });
+    } catch (err) {
+      console.error('GET /dashboard/complainants error:', err.message);
+      res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
+    }
+  }
+);
+
+// ============================================================
+// GET /api/dashboard/complainants/:lineUserId/tickets
+// รายการคำร้องของผู้ร้องรายคน — เฉพาะ superadmin
+// Query: ?year=2568  (พุทธศักราช)
+// ============================================================
+router.get(
+  '/complainants/:lineUserId/tickets',
+  requireRole('superadmin'),
+  async (req, res) => {
+    try {
+      const { lineUserId } = req.params;
+      const { year } = req.query;
+
+      // ── ปีที่ผู้ร้องรายนี้มีคำร้อง ──────────────────────
+      const yearDocs = await Ticket.aggregate([
+        { $match: { lineUserId } },
+        { $group: { _id: { $year: '$createdAt' } } },
+        { $sort: { _id: -1 } },
+      ]);
+      const availableYears = yearDocs.map(d => d._id); // ค.ศ.
+
+      // ── filter ตามปี ──────────────────────────────────────
+      const match = { lineUserId };
+      if (year) {
+        const ce = Number(year) - 543;
+        match.createdAt = {
+          $gte: new Date(`${ce}-01-01T00:00:00.000Z`),
+          $lt:  new Date(`${ce + 1}-01-01T00:00:00.000Z`),
+        };
+      }
+
+      const tickets = await Ticket.find(match)
+        .sort({ createdAt: -1 })
+        .select('ticketNo subject status assignedDepartment createdAt displayName');
+
+      res.json({ tickets, availableYears });
+    } catch (err) {
+      console.error('GET /dashboard/complainants/:lineUserId/tickets error:', err.message);
+      res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
     }
   }
 );

@@ -36,3 +36,14 @@ export const updateGroupName = (id, groupName) =>
   request(`/api/line-groups/${id}/name`, { method: 'PATCH', body: JSON.stringify({ groupName }) });
 export const syncGroupName  = (id) => request(`/api/line-groups/sync-name/${id}`, { method: 'POST' });
 export const deleteLineGroup = (id) => request(`/api/line-groups/${id}`, { method: 'DELETE' });
+
+// ── Complainants (superadmin) ─────────────────────────────
+export const getComplainants = (params) =>
+  request(`/api/dashboard/complainants?${new URLSearchParams(params)}`);
+export const getComplainantTickets = (lineUserId, params) =>
+  request(`/api/dashboard/complainants/${encodeURIComponent(lineUserId)}/tickets?${new URLSearchParams(params)}`);
+
+// ── LINE Quota (superadmin) ───────────────────────────────
+export const getQuotaCurrent = () => request('/api/quota/current');
+export const refreshQuota    = () => request('/api/quota/refresh', { method: 'POST' });
+export const getQuotaHistory = () => request('/api/quota/history');

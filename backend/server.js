@@ -10,6 +10,7 @@ const ticketRoutes = require('./src/routes/ticketRoutes');
 const lineWebhook = require('./src/routes/lineWebhook');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const lineGroupRoutes = require('./src/routes/lineGroupRoutes');
+const quotaRoutes = require('./src/routes/quotaRoutes');
 const path = require('path');
 const fs = require('fs');
 
@@ -96,6 +97,9 @@ app.use('/api/dashboard', dashboardRoutes);
 // ── Routes: LINE Groups Management (ต้อง login + admin) ────
 app.use('/api/line-groups', lineGroupRoutes);
 
+// ── Routes: LINE Quota (ต้อง login + superadmin) ─────
+app.use('/api/quota', quotaRoutes);
+
 // ── Health Check ──────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -133,6 +137,7 @@ app.listen(PORT, () => {
 // ── Scheduled LINE Notifications (node-cron) ───────────────
 const cron = require('node-cron');
 const { pushGroupPending, pushGroupDailySummary } = require('./src/utils/lineNotify');
+const { checkLineQuota } = require('./src/utils/lineQuota');
 const LineGroup = require('./src/models/LineGroup');
 
 // ดึงกลุ่มที่ isActive=true ทั้งหมดจาก DB แล้ว push ทีละกลุ่ม
@@ -147,6 +152,12 @@ const runCronForAllActiveGroups = async (fn, label) => {
   }
 };
 
+// 06:00 น. ทุกวัน → ตรวจโควตา LINE และบันทึกลง MongoDB
+cron.schedule('0 6 * * *', () => {
+  console.log('⏰ Cron: ตรวจโควตา LINE 06:00');
+  checkLineQuota().catch((e) => console.error('Cron quota error:', e.message));
+}, { timezone: 'Asia/Bangkok' });
+
 // 16:30 น. ทุกวันจันทร์-ศุกร์ → แจ้งงานค้าง
 cron.schedule('30 16 * * 1-5', () => {
   console.log('⏰ Cron: แจ้งงานค้าง 16:30');
@@ -159,4 +170,4 @@ cron.schedule('0 17 * * 1-5', () => {
   runCronForAllActiveGroups(pushGroupDailySummary, 'summary');
 }, { timezone: 'Asia/Bangkok' });
 
-console.log('✅ Cron jobs ตั้งค่าแล้ว (16:30 งานค้าง, 17:00 สรุปวัน) — ดึงกลุ่มจาก DB อัตโนมัติ');
+console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา, 16:30 งานค้าง, 17:00 สรุปวัน) — ดึงกลุ่มจาก DB อัตโนมัติ');

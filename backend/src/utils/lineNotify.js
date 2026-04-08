@@ -5,6 +5,15 @@ const lineClient = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
 });
 
+// ── ตรวจโควตาหลังส่งข้อความ (non-blocking) ───────────────
+// import แบบ lazy เพื่อหลีกเลี่ยง circular dependency
+const triggerQuotaCheck = () => {
+  setImmediate(() => {
+    const { checkLineQuota } = require('./lineQuota');
+    checkLineQuota().catch((e) => console.error('[LINE Quota hook] error:', e.message));
+  });
+};
+
 // สถานะที่แสดงเป็นภาษาไทยพร้อม emoji
 const STATUS_LABEL = {
   [TICKET_STATUS.PENDING]: '⏳ รอรับเรื่อง',
@@ -84,6 +93,9 @@ const pushStatusUpdate = async (ticket, note = '') => {
     to: ticket.lineUserId,
     messages: [message],
   });
+
+  // -- ตรวจโควตาหลังส่งข้อความ (บันทึกลง DB พื้นหลัง) --
+  triggerQuotaCheck();
 };
 
 // ============================================================
@@ -144,6 +156,9 @@ const pushTicketConfirm = async (ticket, groupId = null) => {
   if (targetGroup && targetGroup.startsWith('C')) {
     await lineClient.pushMessage({ to: targetGroup, messages: [confirmMsg] });
   }
+
+  // -- ตรวจโควตาหลังส่งข้อความ (บันทึกลง DB พื้นหลัง) --
+  triggerQuotaCheck();
 };
 
 // ============================================================
