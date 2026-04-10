@@ -47,3 +47,7 @@ export const getComplainantTickets = (lineUserId, params) =>
 export const getQuotaCurrent = () => request('/api/quota/current');
 export const refreshQuota    = () => request('/api/quota/refresh', { method: 'POST' });
 export const getQuotaHistory = () => request('/api/quota/history');
+
+// ── Audit Log (superadmin) ────────────────────────────────
+export const getAuditLogs = (params) => request(`/api/audit?${new URLSearchParams(params)}`);
+export const getAuditMeta = ()        => request('/api/audit/meta');

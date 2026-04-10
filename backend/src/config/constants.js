@@ -20,7 +20,7 @@ const DEPARTMENTS = [
 // การตั้งค่าระบบ
 // ============================================================
 const SYSTEM_SETTINGS = {
-  MAX_IMAGE_SIZE: 4194304,       // 4MB (bytes)
+  MAX_IMAGE_SIZE: 1048576,       // 1MB (bytes) per file
   TIMEZONE: 'Asia/Bangkok',
   DATE_FORMAT: 'dd/MM/yyyy',
   CURRENCY: 'THB',

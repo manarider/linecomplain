@@ -35,15 +35,19 @@ app/
 │       ├── models/
 │       │   ├── Counter.js      # Auto-increment ticketNo
 │       │   ├── Ticket.js       # เรื่องร้องทุกข์
-│       │   └── LineGroup.js    # กลุ่ม LINE ที่บอทอยู่
+│       │   ├── LineGroup.js    # กลุ่ม LINE ที่บอทอยู่
+│       │   └── AuditLog.js     # Audit log (TTL 120 วัน)
 │       ├── routes/
 │       │   ├── authRoutes.js        # /auth/*
 │       │   ├── ticketRoutes.js      # /api/tickets/*
 │       │   ├── dashboardRoutes.js   # /api/dashboard/*
 │       │   ├── lineGroupRoutes.js   # /api/line-groups/*
+│       │   ├── auditRoutes.js       # /api/audit/*
 │       │   └── lineWebhook.js       # /webhook
 │       └── utils/
 │           ├── lineNotify.js   # push/reply LINE messages
+│           ├── lineQuota.js    # ตรวจ/บันทึกโควตา LINE
+│           ├── auditLog.js     # logAction helper
 │           └── ums.js          # UMS API integration
 └── frontend/
     ├── src/
@@ -53,9 +57,10 @@ app/
     │   └── pages/
     │       ├── LoginPage.jsx
     │       ├── DashboardPage.jsx
-    │       └── LineGroupsPage.jsx
-    └── components/
-        └── TicketModal.jsx
+            ├── LineGroupsPage.jsx
+            ├── ComplainantsPage.jsx
+            ├── QuotaPage.jsx
+            └── AuditLogPage.jsx
 ```
 
 ---
@@ -104,6 +109,7 @@ LINE_GROUP_ID=...
 |--------|------|------|-------------|
 | POST | `/api/tickets` | — | บันทึกเรื่องร้องทุกข์ใหม่ |
 | GET | `/api/tickets/status/:ticketNo` | — | ตรวจสอบสถานะ (LINE Bot ใช้) |
+| POST | `/api/tickets/preview-heic` | — | แปลง HEIC → JPEG + resize (สำหรับ LIFF) |
 
 ### Dashboard (เจ้าหน้าที่)
 | Method | Path | Auth | Description |
@@ -123,16 +129,29 @@ LINE_GROUP_ID=...
 | POST | `/api/line-groups/sync-name/:id` | JWT + admin | ดึงชื่อจาก LINE API |
 | DELETE | `/api/line-groups/:id` | JWT + admin | ลบกลุ่ม |
 
+### Audit Log (superadmin)
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/audit` | JWT + superadmin | ดึง log พร้อม search/filter/pagination |
+| GET | `/api/audit/meta` | JWT + superadmin | distinct actions & categories |
+
+### LINE Quota (superadmin)
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/quota/current` | JWT + superadmin | โควตา LINE ปัจจุบัน |
+| POST | `/api/quota/refresh` | JWT + superadmin | รีเฟรชโควตา |
+| GET | `/api/quota/history` | JWT + superadmin | ประวัติโควตา |
+
 ---
 
 ## Role & Permission
 
-| Role | เห็น Ticket | ส่งต่อ | จัดการกลุ่ม LINE |
-|------|------------|--------|-----------------|
-| `staff` | เฉพาะหน่วยงานตัวเอง | ❌ | ❌ |
-| `executive` | ทุกหน่วยงาน | ✅ | ❌ |
-| `admin` | ทุกหน่วยงาน | ✅ | ✅ |
-| `superadmin` | ทุกหน่วยงาน | ✅ | ✅ |
+| Role | เห็น Ticket | ส่งต่อ | จัดการกลุ่ม LINE | Audit Log | Quota |
+|------|------------|--------|-----------------|-----------|-------|
+| `staff` | เฉพาะหน่วยงานตัวเอง | ❌ | ❌ | ❌ | ❌ |
+| `executive` | ทุกหน่วยงาน | ✅ | ❌ | ❌ | ❌ |
+| `admin` | ทุกหน่วยงาน | ✅ | ✅ | ❌ | ❌ |
+| `superadmin` | ทุกหน่วยงาน | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -207,7 +226,8 @@ pm2 restart complain-backend
 | Auth | JWT (httpOnly cookie), UMS SSO |
 | LINE | @line/bot-sdk v11, LIFF SDK 2 |
 | Process | PM2, Nginx (reverse proxy), Cloudflare SSL |
-| Security | Helmet.js, CORS whitelist, Multer file validation |
+| Security | Helmet.js, CORS whitelist, Multer file validation, Audit Log |
+| Image | heic-convert (HEIC→JPEG), sharp (resize) |
 
 ---
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { fetchUserInfo, extractProjectPermission } = require('../utils/ums');
+const { logAction, getIp } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -67,15 +68,35 @@ router.get('/callback', async (req, res) => {
     });
 
     // 6. Redirect ไปหน้า Dashboard
+    logAction({
+      actorId:   payload.userId,
+      actorName: `${payload.firstName} ${payload.lastName}`.trim(),
+      actorRole: payload.role,
+      action:    'LOGIN',
+      category:  'auth',
+      detail:    `เข้าสู่ระบบสำเร็จ (${payload.role})`,
+      ip:        getIp(req),
+      userAgent: req.headers['user-agent'] || '',
+    });
     res.redirect('/dashboard');
   } catch (error) {
     console.error('Auth callback error:', error.message);
-
+    logAction({
+      actorId:  'unknown',
+      actorName:'unknown',
+      actorRole:'',
+      action:   'LOGIN_FAILED',
+      category: 'auth',
+      detail:   `เข้าสู่ระบบไม่สำเร็จ: ${error.message}`,
+      ip:        getIp(req),
+      userAgent: req.headers['user-agent'] || '',
+      success:  false,
+      errorMessage: error.message,
+    });
     // กรณี UMS ตอบ 401 (token หมดอายุหรือไม่ถูกต้อง)
     if (error.response?.status === 401) {
       return res.redirect('/auth/login');
     }
-
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการยืนยันตัวตน' });
   }
 });
@@ -110,6 +131,22 @@ router.get('/me', (req, res) => {
 // ล้าง cookie และออกจากระบบ
 // ============================================================
 router.post('/logout', (req, res) => {
+  const token = req.cookies?.auth_token;
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      logAction({
+        actorId:   decoded.userId,
+        actorName: `${decoded.firstName} ${decoded.lastName}`.trim(),
+        actorRole: decoded.role,
+        action:    'LOGOUT',
+        category:  'auth',
+        detail:    'ออกจากระบบ',
+        ip:        getIp(req),
+        userAgent: req.headers['user-agent'] || '',
+      });
+    } catch { /* token หมดอายุ ไม่ต้อง log */ }
+  }
   res.clearCookie('auth_token');
   res.json({ message: 'ออกจากระบบสำเร็จ' });
 });

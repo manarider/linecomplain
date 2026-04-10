@@ -6,6 +6,7 @@ import TicketModal from '../components/TicketModal';
 import LineGroupsPage from './LineGroupsPage';
 import ComplainantsPage from './ComplainantsPage';
 import QuotaPage from './QuotaPage';
+import AuditLogPage from './AuditLogPage';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -178,6 +179,12 @@ export default function DashboardPage() {
               )}
             </div>
           )}
+          {user && user.role === 'superadmin' && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'audit' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('audit'); setSidebarOpen(false); }}
+            >🗂️ Audit Log</div>
+          )}
         </nav>
 
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
@@ -202,7 +209,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '📊 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '📊 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -224,6 +231,9 @@ export default function DashboardPage() {
           )}
           {activeMenu === 'quota' && (
             <QuotaPage showToast={showToast} />
+          )}
+          {activeMenu === 'audit' && (
+            <AuditLogPage showToast={showToast} />
           )}
           {activeMenu === 'tickets' && (<>
 

@@ -3,6 +3,7 @@ const Ticket = require('../models/Ticket');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { pushStatusUpdate } = require('../utils/lineNotify');
 const { TICKET_STATUS, FULL_ACCESS_ROLES, DEPARTMENTS } = require('../config/constants');
+const { logAction, actorFromUser } = require('../utils/auditLog');
 
 const router = express.Router();
 
@@ -175,8 +176,19 @@ router.patch('/tickets/:id/status', async (req, res) => {
       previousStatus,
       newStatus: status,
     });
+
+    // ── Audit Log ──
+    logAction({
+      ...actorFromUser(req),
+      action: 'UPDATE_STATUS',
+      category: 'ticket',
+      targetId: ticket.ticketNo,
+      targetLabel: ticket.subject,
+      detail: `เปลี่ยนสถานะ "${previousStatus}" → "${status}"${note ? ` (หมายเหตุ: ${note})` : ''}`,
+      meta: { ticketId: req.params.id, previousStatus, newStatus: status, note },
+    });
   } catch (err) {
-    console.error('PATCH /dashboard/tickets/:id/status error:', err.message);
+    console.error('updateStatus error:', err);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' });
   }
 });
@@ -228,8 +240,19 @@ router.patch(
         from: previousDepartment,
         to: targetDepartment,
       });
+
+      // ── Audit Log ──
+      logAction({
+        ...actorFromUser(req),
+        action: 'FORWARD_TICKET',
+        category: 'ticket',
+        targetId: ticket.ticketNo,
+        targetLabel: ticket.subject,
+        detail: `ส่งต่อจาก "${previousDepartment}" → "${targetDepartment}"${note ? ` (หมายเหตุ: ${note})` : ''}`,
+        meta: { ticketId: req.params.id, from: previousDepartment, to: targetDepartment, note },
+      });
     } catch (err) {
-      console.error('PATCH /dashboard/tickets/:id/forward error:', err.message);
+      console.error('forwardTicket error:', err);
       res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งต่อเรื่อง' });
     }
   }

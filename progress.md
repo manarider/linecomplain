@@ -1,5 +1,5 @@
 # 📋 แผนการพัฒนาระบบรับเรื่องร้องทุกข์ (CAPP — Complaint Application)
-> อัปเดตล่าสุด: 7 เมษายน 2569
+> อัปเดตล่าสุด: 10 เมษายน 2569
 
 ---
 
@@ -21,13 +21,16 @@
 - [x] LINE Webhook รับคำสั่ง `ตามเรื่อง` → แสดงรายการค้างดำเนินการ (single bubble card)
   - กรณีพิมพ์จากกลุ่ม: push ไปแชทส่วนตัว + reply แจ้งในกลุ่ม
 - [x] LINE Webhook รับเลขที่คำร้อง `RPT-XXXX-XXXX` → ตอบสถานะทันที
-- [x] LIFF หน้าฟอร์ม (`/liff`) — หัวข้อ, รายละเอียด, หน่วยงาน, เบอร์โทร, GPS pin, รูปภาพ (≤5รูป/4MB)
-  - Image compression อัตโนมัติ (max 1920px, max 1MB/รูป)
+- [x] LIFF หน้าฟอร์ม (`/liff`) — หัวข้อ, รายละเอียด, หน่วยงาน, เบอร์โทร, GPS pin, รูปภาพ (≤5รูป)
+  - Image compression อัตโนมัติ (max 1280px, max 500KB/รูป, quality 0.80)
+  - ไฟล์ HEIC/HEIF: แปลงฝั่ง server ด้วย `heic-convert` + `sharp` (รองรับ H.265)
+  - Progress bar 0–100% ขณะประมวลผล HEIC
   - ตรวจสอบ `liff.getFriendship()` ก่อนส่ง
   - ฝัง `groupId` ผ่าน query string `?gid=` จาก webhook
 - [x] `POST /api/tickets` — บันทึก ticket + push Flex Message ยืนยันทั้งแชทส่วนตัวและกลุ่ม
 - [x] `GET /api/tickets/status/:ticketNo` — ตรวจสถานะแบบ public (LINE Bot ใช้)
 - [x] `ticketNo` auto-generate `RPT-YYMM-XXXX` atomic ผ่าน Counter model
+- [x] `POST /api/tickets/preview-heic` — รับ HEIC → แปลง JPEG (heic-convert) → resize 1280px (sharp) → thumbnail → คืน base64
 
 ## ✅ Phase 4: Admin Dashboard (หลังบ้านตามสิทธิ์ UMS)
 - [x] SPA Frontend React + Vite — LoginPage, DashboardPage, TicketModal, LineGroupsPage
@@ -49,6 +52,15 @@
 - [x] LineGroupsPage — หน้าจัดการกลุ่ม LINE บน Dashboard (superadmin/admin เท่านั้น)
 - [x] Cron 16:30 แจ้งงานค้าง + Cron 17:00 สรุปยอดประจำวัน — **ดึงกลุ่ม isActive จาก DB อัตโนมัติ** (รองรับหลายกลุ่ม)
 
+## ✅ Phase 6: Audit Log (บันทึกการกระทำในระบบ)
+- [x] `AuditLog` model — TTL index 120 วัน (ลบอัตโนมัติ)
+- [x] `logAction()` helper — บันทึก log แบบ fire-and-forget (ไม่ block response)
+- [x] บันทึก log ที่: LOGIN, LOGIN_FAILED, LOGOUT, CREATE_TICKET, UPDATE_STATUS, FORWARD_TICKET
+- [x] `GET /api/audit` — ค้นหา/กรอง/pagination (superadmin เท่านั้น)
+- [x] `GET /api/audit/meta` — distinct actions & categories สำหรับ dropdown
+- [x] `AuditLogPage.jsx` — หน้าดู audit log พร้อม search, filter action/category, date range, pagination
+- [x] เมนู "🗂️ Audit Log" ใน Sidebar (superadmin เท่านั้น)
+
 ## 🔒 Security (ที่ได้ดำเนินการ)
 - [x] Helmet.js + CSP whitelist เฉพาะ domain ที่จำเป็น
 - [x] CORS whitelist เฉพาะ `complain.nsm.go.th` + `liff.line.me`
@@ -58,7 +70,7 @@
 - [x] Regex search input escaping (ป้องกัน ReDoS)
 - [x] Role-based access control ทุก protected route
 
-## 📊 Phase 6: Statistics & Report (แผนในอนาคต)
+## 📊 Phase 7: Statistics & Report (แผนในอนาคต)
 - [ ] หน้าสรุปสถิติรายเดือน/รายปีงบประมาณ สำหรับ executive/admin
 - [ ] Export รายงาน PDF / Excel
 - [ ] Rate limiting สำหรับ `POST /api/tickets` (ป้องกัน spam)

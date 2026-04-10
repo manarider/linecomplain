@@ -8,8 +8,8 @@ const requireAuth = (req, res, next) => {
   const token = req.cookies?.auth_token;
 
   if (!token) {
-    // ถ้าเป็น API request ให้ตอบ JSON
-    if (req.path.startsWith('/api/')) {
+    // ถ้าเป็น API request ให้ตอบ JSON (ใช้ originalUrl เพราะ req.path เป็น relative ใน router)
+    if (req.originalUrl?.startsWith('/api/')) {
       return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
     }
     // ถ้าเป็นหน้าเว็บให้ redirect ไป login
@@ -22,7 +22,7 @@ const requireAuth = (req, res, next) => {
     next();
   } catch {
     res.clearCookie('auth_token');
-    if (req.path.startsWith('/api/')) {
+    if (req.originalUrl?.startsWith('/api/')) {
       return res.status(401).json({ message: 'Token ไม่ถูกต้องหรือหมดอายุ กรุณาเข้าสู่ระบบใหม่' });
     }
     return res.redirect('/auth/login');

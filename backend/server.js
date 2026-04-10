@@ -11,6 +11,7 @@ const lineWebhook = require('./src/routes/lineWebhook');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const lineGroupRoutes = require('./src/routes/lineGroupRoutes');
 const quotaRoutes = require('./src/routes/quotaRoutes');
+const auditRoutes = require('./src/routes/auditRoutes');
 const path = require('path');
 const fs = require('fs');
 
@@ -65,6 +66,7 @@ app.use(cookieParser());
 
 // ── Static Files ──────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/liff/assets', express.static(path.join(__dirname, 'public/liff')));
 
 // ── React Frontend (static dist) ───────────────────────
 const frontendDist = path.join(__dirname, '../frontend/dist');
@@ -99,6 +101,9 @@ app.use('/api/line-groups', lineGroupRoutes);
 
 // ── Routes: LINE Quota (ต้อง login + superadmin) ─────
 app.use('/api/quota', quotaRoutes);
+
+// ── Routes: Audit Log (ต้อง login + superadmin) ─────
+app.use('/api/audit', auditRoutes);
 
 // ── Health Check ──────────────────────────────────────
 app.get('/health', (req, res) => {

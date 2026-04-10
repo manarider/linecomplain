@@ -61,6 +61,7 @@
       background: #fff;
       transition: border-color 0.2s;
       -webkit-appearance: none;
+      appearance: none;
     }
     input:focus, textarea:focus, select:focus {
       outline: none;
@@ -184,12 +185,13 @@
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(255,255,255,0.85);
+      background: rgba(255,255,255,0.88);
       z-index: 999;
       align-items: center;
       justify-content: center;
       flex-direction: column;
       gap: 12px;
+      padding: 24px;
     }
     #loadingOverlay.show { display: flex; }
     .spinner {
@@ -201,6 +203,31 @@
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* Progress bar (แสดงเฉพาะตอนประมวลผล HEIC) */
+    #progressWrap {
+      display: none;
+      width: 100%;
+      max-width: 280px;
+      flex-direction: column;
+      gap: 6px;
+      align-items: center;
+    }
+    #progressWrap.show { display: flex; }
+    #progressBar {
+      width: 100%;
+      height: 8px;
+      background: #d1d5db;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #progressFill {
+      height: 100%;
+      width: 0%;
+      background: #1a5f9e;
+      border-radius: 4px;
+      transition: width 0.2s ease;
+    }
+    #progressText { font-size: 0.8rem; color: #1a5f9e; font-weight: 600; }
 
     /* Success Screen */
     #successScreen {
@@ -242,7 +269,11 @@
 <!-- Loading Overlay -->
 <div id="loadingOverlay">
   <div class="spinner"></div>
-  <p style="color:#555;font-size:0.9rem;">กำลังส่งข้อมูล...</p>
+  <p id="loadingText" style="color:#555;font-size:0.9rem;text-align:center;">กำลังส่งข้อมูล...</p>
+  <div id="progressWrap">
+    <div id="progressBar"><div id="progressFill"></div></div>
+    <span id="progressText">0%</span>
+  </div>
 </div>
 
 <!-- Header -->
@@ -459,14 +490,17 @@
     locationData = null;
   }
 
-  // ── Image Compression ─────────────────────────────────────
+  // ── Image Compression (สำหรับ JPG/PNG ฝั่ง client) ─────────
+  // resolves to compressed File
   function compressImage(file) {
     return new Promise(function (resolve) {
       const reader = new FileReader();
+      reader.onerror = function () { resolve(file); };
       reader.onload = function (ev) {
         const img = new Image();
+        img.onerror = function () { resolve(file); };
         img.onload = function () {
-          const MAX_DIM = 1920, MAX_BYTES = 1 * 1024 * 1024;
+          const MAX_DIM = 1280, MAX_BYTES = 500 * 1024;
           let w = img.width, h = img.height;
           if (w > MAX_DIM || h > MAX_DIM) {
             if (w > h) { h = Math.round(h * MAX_DIM / w); w = MAX_DIM; }
@@ -478,12 +512,13 @@
           const newName = file.name.replace(/\.[^.]+$/, '.jpg');
           const tryQ = function (q) {
             canvas.toBlob(function (blob) {
+              if (!blob) { resolve(file); return; }
               if (blob.size <= MAX_BYTES || q <= 0.3) {
                 resolve(new File([blob], newName, { type: 'image/jpeg' }));
               } else tryQ(+(q - 0.1).toFixed(1));
             }, 'image/jpeg', q);
           };
-          tryQ(0.85);
+          tryQ(0.80);
         };
         img.src = ev.target.result;
       };
@@ -496,28 +531,95 @@
     const files = Array.from(e.target.files);
     e.target.value = '';
     if (!files.length) return;
-    const loadingP = document.querySelector('#loadingOverlay p');
-    loadingP.textContent = 'กำลังบีบอัดรูปภาพ...';
-    showLoading(true);
+    showLoading(true, 'กำลังประมวลผลภาพ...');
     for (const f of files) await addFile(f);
     showLoading(false);
-    loadingP.textContent = 'กำลังส่งข้อมูล...';
+    showProgress(false);
+    setProgress(0);
   }
   document.getElementById('fileInput').addEventListener('change', handleFileInput);
   document.getElementById('cameraInput').addEventListener('change', handleFileInput);
+
+  function isHeicFile(file) {
+    return file.type === 'image/heic' || file.type === 'image/heif' ||
+      /\.(heic|heif)$/i.test(file.name);
+  }
+
+  // ── HEIC: อัปโหลดไป server ให้แปลง + resize + คืน preview ──────
+  function uploadHeicToServer(file) {
+    return new Promise(function (resolve, reject) {
+      const fd = new FormData();
+      fd.append('image', file);
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener('progress', function (ev) {
+        if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 80));
+      });
+      xhr.addEventListener('load', function () {
+        setProgress(95);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { setProgress(100); resolve(JSON.parse(xhr.responseText)); }
+          catch (e) { reject(new Error('ผลลัพธ์จาก server ไม่ถูกต้อง')); }
+        } else {
+          try { reject(new Error(JSON.parse(xhr.responseText).message || 'เกิดข้อผิดพลาด ' + xhr.status)); }
+          catch (e) { reject(new Error('เกิดข้อผิดพลาด ' + xhr.status)); }
+        }
+      });
+      xhr.addEventListener('error', function () { reject(new Error('เน็ตเวิร์คขัดข้อง กรุณาลองใหม่')); });
+      xhr.open('POST', API_BASE + '/api/tickets/preview-heic');
+      xhr.send(fd);
+    });
+  }
+
+  // ── dataURL → File ──────────────────────────────────────────
+  function dataUrlToFile(dataUrl, filename) {
+    const [header, base64] = dataUrl.split(',');
+    const mime = header.match(/:(.*?);/)[1];
+    const binary = atob(base64);
+    const arr = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+    return new File([arr], filename, { type: mime });
+  }
 
   async function addFile(file) {
     if (selectedFiles.length >= 5) {
       showError('อัปโหลดได้สูงสุด 5 รูปเท่านั้น');
       return;
     }
-    if (!file.type.startsWith('image/')) {
+    const isImage = file.type.startsWith('image/') || file.type === '' ||
+      /\.(heic|heif|jpg|jpeg|png|gif|webp)$/i.test(file.name);
+    if (!isImage) {
       showError('รองรับเฉพาะไฟล์รูปภาพเท่านั้น');
       return;
     }
-    const compressed = await compressImage(file);
-    selectedFiles.push(compressed);
-    renderPreviews();
+    try {
+      if (isHeicFile(file)) {
+        // HEIC → server แปลง + resize + คืน base64
+        showLoading(true, 'กำลังประมวลผลภาพ HEIC...');
+        showProgress(true);
+        setProgress(0);
+        const result = await uploadHeicToServer(file);
+        // result = { previewDataUrl, fileDataUrl, size, name }
+        const jpegFile = dataUrlToFile(result.fileDataUrl, result.name);
+        selectedFiles.push({ file: jpegFile, previewUrl: result.previewDataUrl });
+        showProgress(false);
+        setProgress(0);
+        showLoading(true, 'กำลังประมวลผลภาพ...');
+      } else {
+        // JPG/PNG → compress ฝั่ง client
+        const compressedFile = await compressImage(file);
+        const previewUrl = await new Promise(function (resolve) {
+          const reader = new FileReader();
+          reader.onload = function (ev) { resolve(ev.target.result); };
+          reader.onerror = function () { resolve(''); };
+          reader.readAsDataURL(compressedFile);
+        });
+        selectedFiles.push({ file: compressedFile, previewUrl: previewUrl });
+      }
+      renderPreviews();
+    } catch (err) {
+      console.error('addFile error:', err);
+      showError('ไม่สามารถประมวลผลรูปภาพนี้ได้: ' + (err.message || ''));
+    }
   }
 
   function removeFile(index) {
@@ -528,18 +630,20 @@
   function renderPreviews() {
     const grid = document.getElementById('previewGrid');
     grid.innerHTML = '';
-    selectedFiles.forEach((file, i) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const item = document.createElement('div');
-        item.className = 'preview-item';
-        item.innerHTML = `
-          <img src="${e.target.result}" alt="preview" />
-          <button type="button" class="remove-btn" onclick="removeFile(${i})">✕</button>
-        `;
-        grid.appendChild(item);
-      };
-      reader.readAsDataURL(file);
+    selectedFiles.forEach((item, i) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'preview-item';
+      const img = document.createElement('img');
+      img.alt = 'preview';
+      img.src = item.previewUrl;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'remove-btn';
+      btn.textContent = '✕';
+      btn.onclick = () => removeFile(i);
+      wrapper.appendChild(img);
+      wrapper.appendChild(btn);
+      grid.appendChild(wrapper);
     });
   }
 
@@ -576,9 +680,10 @@
       formData.append('lat', locationData.lat);
       formData.append('lng', locationData.lng);
     }
-    selectedFiles.forEach((file) => formData.append('images', file));
+    selectedFiles.forEach((item) => formData.append('images', item.file));
 
-    showLoading(true);
+    clearError();
+    showLoading(true, 'กำลังส่งข้อมูล...');
     document.getElementById('submitBtn').disabled = true;
 
     try {
@@ -604,16 +709,28 @@
     }
   });
 
-  // ── Helper Functions ───────────────────────────────────────
+  // ── Helpers: Error Alert ─────────────────────────────────
   function showError(msg) {
     const el = document.getElementById('alertError');
     el.textContent = msg;
     el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 5000);
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function clearError() {
+    document.getElementById('alertError').classList.remove('show');
   }
 
-  function showLoading(show) {
+  // ── Helpers: Loading & Progress ──────────────────────────
+  function showLoading(show, text) {
     document.getElementById('loadingOverlay').classList.toggle('show', show);
+    if (text !== undefined) document.getElementById('loadingText').textContent = text;
+  }
+  function showProgress(show) {
+    document.getElementById('progressWrap').classList.toggle('show', show);
+  }
+  function setProgress(pct) {
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').textContent = pct + '%';
   }
 </script>
 </body>
