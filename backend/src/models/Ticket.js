@@ -24,6 +24,9 @@ const ticketSchema = new mongoose.Schema(
     // ── รูปภาพ (filename ที่เซฟลง ./uploads) ─────────────
     images: [{ type: String }], // เก็บแค่ชื่อไฟล์
 
+    // ── รูปยืนยันผลการดำเนินงาน (แนบตอนเปลี่ยนสถานะเสร็จสิ้น) ──
+    completionImages: [{ type: String }],
+
     // ── การกำหนดหน่วยงาน ──────────────────────────────────
     // ใช้ match กับ subDepartment ของเจ้าหน้าที่จาก UMS
     assignedDepartment: {

@@ -1,11 +1,45 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const Ticket = require('../models/Ticket');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { pushStatusUpdate } = require('../utils/lineNotify');
-const { TICKET_STATUS, FULL_ACCESS_ROLES, DEPARTMENTS } = require('../config/constants');
+const { TICKET_STATUS, FULL_ACCESS_ROLES, DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
 const { logAction, actorFromUser } = require('../utils/auditLog');
 
 const router = express.Router();
+
+// ── Multer สำหรับ completionImages (รูปผลการดำเนินงาน) ─────
+const uploadsDir = path.join(__dirname, '../../uploads');
+const completionStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+    cb(null, safeName);
+  },
+});
+const completionFileFilter = (req, file, cb) => {
+  const allowed = /^image\/(jpeg|png|gif|webp)$/;
+  const extAllowed = /\.(jpg|jpeg|png|gif|webp)$/i;
+  if (allowed.test(file.mimetype) || extAllowed.test(file.originalname)) {
+    cb(null, true);
+  } else {
+    cb(new Error('อนุญาตเฉพาะไฟล์รูปภาพเท่านั้น'));
+  }
+};
+const completionUpload = multer({
+  storage: completionStorage,
+  fileFilter: completionFileFilter,
+  limits: { fileSize: SYSTEM_SETTINGS.MAX_IMAGE_SIZE, files: 3 },
+});
+const runCompletionUpload = (req, res) =>
+  new Promise((resolve, reject) => {
+    completionUpload.array('completionImages', 3)(req, res, (err) => {
+      if (err) reject(err); else resolve();
+    });
+  });
 
 // ทุก route ใน dashboard ต้อง login ก่อน
 router.use(requireAuth);
@@ -128,23 +162,41 @@ router.get('/tickets/:id', async (req, res) => {
 // ============================================================
 // PATCH /api/dashboard/tickets/:id/status
 // อัปเดตสถานะ + แจ้งเตือนผู้แจ้งผ่าน LINE
-// Body: { status, note }
+// Body: { status, note } หรือ multipart/form-data (พร้อมรูป completionImages)
 // ============================================================
 router.patch('/tickets/:id/status', async (req, res) => {
+  // ── รับ multipart (รูปผลงาน) ถ้ามี ──────────────────────
+  if (req.is('multipart/form-data')) {
+    try {
+      await runCompletionUpload(req, res);
+    } catch (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE')  return res.status(400).json({ message: 'ไฟล์มีขนาดเกิน 500KB' });
+        if (err.code === 'LIMIT_FILE_COUNT') return res.status(400).json({ message: 'อัปโหลดได้สูงสุด 3 รูปเท่านั้น' });
+      }
+      return res.status(400).json({ message: err.message });
+    }
+  }
+
   try {
     const { status, note } = req.body;
 
     // ตรวจสอบว่า status ที่ส่งมาถูกต้อง
     if (!Object.values(TICKET_STATUS).includes(status)) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
       return res.status(400).json({ message: 'สถานะไม่ถูกต้อง' });
     }
 
     const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });
+    if (!ticket) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });
+    }
 
     // staff ตรวจสิทธิ์ก่อนอัปเดต
     if (!FULL_ACCESS_ROLES.includes(req.user.role) &&
         ticket.assignedDepartment !== req.user.subDepartment) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
       return res.status(403).json({ message: 'ไม่มีสิทธิ์แก้ไขเรื่องนี้' });
     }
 
@@ -154,6 +206,11 @@ router.patch('/tickets/:id/status', async (req, res) => {
     ticket.status = status;
     ticket.assignedToId = req.user.userId;
     ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
+
+    // บันทึกรูปผลการดำเนินงาน (เฉพาะสถานะเสร็จสิ้น)
+    if (status === TICKET_STATUS.COMPLETED && req.files && req.files.length > 0) {
+      ticket.completionImages = req.files.map((f) => f.filename);
+    }
 
     // บันทึก history
     ticket.history.push({
@@ -188,6 +245,7 @@ router.patch('/tickets/:id/status', async (req, res) => {
       meta: { ticketId: req.params.id, previousStatus, newStatus: status, note },
     });
   } catch (err) {
+    if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
     console.error('updateStatus error:', err);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' });
   }

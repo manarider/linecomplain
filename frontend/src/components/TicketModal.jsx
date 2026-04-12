@@ -1,10 +1,49 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getTicket, updateStatus, forwardTicket,
 } from '../api';
 import {
   DEPARTMENTS, TICKET_STATUS, STATUS_BADGE, formatDate, FULL_ACCESS_ROLES,
 } from '../constants';
+
+// ── ตรวจสอบอุปกรณ์มือถือ ─────────────────────────────────
+const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || navigator.maxTouchPoints > 0;
+
+// ── บีบอัดรูปให้ไม่เกิน 500KB, max 1280px ────────────────
+function compressImage(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onerror = () => resolve(file);
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onerror = () => resolve(file);
+      img.onload = () => {
+        const MAX_DIM = 1280, MAX_BYTES = 500 * 1024;
+        let w = img.width, h = img.height;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          if (w > h) { h = Math.round(h * MAX_DIM / w); w = MAX_DIM; }
+          else       { w = Math.round(w * MAX_DIM / h); h = MAX_DIM; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const newName = file.name.replace(/\.[^.]+$/, '.jpg');
+        const tryQ = (q) => {
+          canvas.toBlob((blob) => {
+            if (!blob) { resolve(file); return; }
+            if (blob.size <= MAX_BYTES || q <= 0.3)
+              resolve(new File([blob], newName, { type: 'image/jpeg' }));
+            else tryQ(+(q - 0.1).toFixed(1));
+          }, 'image/jpeg', q);
+        };
+        tryQ(0.80);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [ticket, setTicket]       = useState(null);
@@ -16,6 +55,10 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [showForward, setShowForward]   = useState(false);
   const [saving, setSaving]       = useState(false);
   const [toast, setToast]         = useState('');
+  const [completionFiles, setCompletionFiles]       = useState([]);
+  const [completionPreviews, setCompletionPreviews] = useState([]);
+  const cameraRef = useRef(null);
+  const galleryRef = useRef(null);
 
   const showToast = (msg, type = '') => {
     setToast({ msg, type });
@@ -34,13 +77,36 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     if (!actionStatus) { showToast('กรุณาเลือกสถานะ', 'error'); return; }
     setSaving(true);
     try {
-      await updateStatus(ticketId, { status: actionStatus, note: actionNote });
+      const files = actionStatus === 'เสร็จสิ้น' ? completionFiles : [];
+      await updateStatus(ticketId, { status: actionStatus, note: actionNote }, files);
       showToast(`อัปเดตสถานะ "${actionStatus}" สำเร็จ ✅`, 'success');
       onUpdated();
       onClose();
     } catch (err) {
       showToast(err.message, 'error');
     } finally { setSaving(false); }
+  };
+
+  const handleCompletionPhoto = async (e) => {
+    const files = Array.from(e.target.files);
+    e.target.value = '';
+    if (!files.length) return;
+    const remaining = 3 - completionFiles.length;
+    const toProcess = files.slice(0, remaining);
+    if (!toProcess.length) { showToast('แนบรูปได้สูงสุด 3 รูป', 'error'); return; }
+    const newFiles = [], newPreviews = [];
+    for (const file of toProcess) {
+      const compressed = await compressImage(file);
+      newFiles.push(compressed);
+      newPreviews.push(URL.createObjectURL(compressed));
+    }
+    setCompletionFiles((p) => [...p, ...newFiles]);
+    setCompletionPreviews((p) => [...p, ...newPreviews]);
+  };
+
+  const removeCompletionImage = (i) => {
+    setCompletionFiles((p) => p.filter((_, j) => j !== i));
+    setCompletionPreviews((p) => p.filter((_, j) => j !== i));
   };
 
   const handleForward = async () => {
@@ -102,7 +168,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               <Row label="วันที่แจ้ง">{formatDate(ticket.createdAt)}</Row>
               {ticket.assignedToName && <Row label="ผู้รับเรื่อง">{ticket.assignedToName}</Row>}
 
-              {/* รูปภาพ */}
+              {/* รูปภาพประกอบ */}
               {ticket.images?.length > 0 && (
                 <>
                   <SectionTitle>🖼️ รูปภาพ</SectionTitle>
@@ -112,6 +178,24 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                         key={f}
                         src={`/uploads/${f}`}
                         alt="รูปประกอบ"
+                        style={S.thumb}
+                        onClick={() => window.open(`/uploads/${f}`)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* รูปผลการดำเนินงาน */}
+              {ticket.completionImages?.length > 0 && (
+                <>
+                  <SectionTitle>📸 รูปผลการดำเนินงาน</SectionTitle>
+                  <div style={S.imgGrid}>
+                    {ticket.completionImages.map(f => (
+                      <img
+                        key={f}
+                        src={`/uploads/${f}`}
+                        alt="รูปผลงาน"
                         style={S.thumb}
                         onClick={() => window.open(`/uploads/${f}`)}
                       />
@@ -167,6 +251,57 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               value={actionNote}
               onChange={e => setActionNote(e.target.value)}
             />
+
+            {/* ── อัปโหลดรูปผลการดำเนินงาน (เฉพาะ เสร็จสิ้น) ── */}
+            {actionStatus === 'เสร็จสิ้น' && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#444', marginBottom: 8 }}>
+                  📸 รูปผลการดำเนินงาน
+                  <span style={{ color: '#999', fontWeight: 400 }}> (ไม่บังคับ สูงสุด 3 รูป)</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  {isMobile && (
+                    <label style={S.photoBtn}>
+                      📷 ถ่ายรูป
+                      <input
+                        ref={cameraRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        style={{ display: 'none' }}
+                        onChange={handleCompletionPhoto}
+                      />
+                    </label>
+                  )}
+                  <label style={S.photoBtn}>
+                    🖼️ เลือกจากเครื่อง
+                    <input
+                      ref={galleryRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={handleCompletionPhoto}
+                    />
+                  </label>
+                </div>
+                {completionPreviews.length > 0 && (
+                  <div style={S.imgGrid}>
+                    {completionPreviews.map((src, i) => (
+                      <div key={i} style={{ position: 'relative' }}>
+                        <img src={src} style={S.thumb} alt={`preview ${i}`} />
+                        <button
+                          style={S.removeThumb}
+                          onClick={() => removeCompletionImage(i)}
+                          title="ลบรูป"
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={S.actionBtns}>
               <button style={S.btnUpdate} disabled={saving} onClick={handleUpdateStatus}>
                 💾 บันทึกสถานะ
@@ -259,6 +394,19 @@ const S = {
     marginBottom: 10, display: 'block', background: '#fff',
   },
   actionBtns: { display: 'flex', gap: 10 },
+  photoBtn: {
+    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 6, padding: '10px 8px', border: '1.5px solid #1a5f9e',
+    borderRadius: 8, background: '#f0f7ff', color: '#1a5f9e',
+    fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer',
+  },
+  removeThumb: {
+    position: 'absolute', top: 3, right: 3,
+    background: 'rgba(0,0,0,0.55)', color: '#fff',
+    border: 'none', borderRadius: '50%', width: 20, height: 20,
+    fontSize: 12, cursor: 'pointer', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+  },
   btnUpdate: {
     flex: 1, padding: 10, background: '#1a5f9e', color: '#fff',
     border: 'none', borderRadius: 8, cursor: 'pointer',

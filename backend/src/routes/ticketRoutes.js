@@ -45,8 +45,8 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: SYSTEM_SETTINGS.MAX_IMAGE_SIZE, // 1MB per file
-    files: 5,                                 // สูงสุด 5 รูป = max 5MB
+    fileSize: SYSTEM_SETTINGS.MAX_IMAGE_SIZE, // 500KB per file
+    files: 5,                                 // สูงสุด 5 รูป
   },
 });
 
@@ -79,13 +79,24 @@ router.post('/preview-heic', (req, res) => {
         quality: 0.8,
       });
 
-      // ขั้น 2: resize ด้วย sharp (ตอนนี้เป็น JPEG แล้ว sharp รองรับ)
+      // ขั้น 2: resize ด้วย sharp และลด quality จนได้ไม่เกิน 500KB
       const MAX_DIM = 1280;
-      const jpegBuffer = await sharp(Buffer.from(jpegRawBuffer))
+      const MAX_BYTES = 500 * 1024;
+
+      // resize ก่อนด้วย quality สูงสุด
+      const resizedBuffer = await sharp(Buffer.from(jpegRawBuffer))
         .rotate()  // auto-rotate จาก EXIF
         .resize(MAX_DIM, MAX_DIM, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
+        .jpeg({ quality: 95 })
         .toBuffer();
+
+      // ลด quality จนได้ขนาดไม่เกิน 500KB
+      let q = 80;
+      let jpegBuffer = await sharp(resizedBuffer).jpeg({ quality: q }).toBuffer();
+      while (jpegBuffer.length > MAX_BYTES && q > 30) {
+        q -= 10;
+        jpegBuffer = await sharp(resizedBuffer).jpeg({ quality: q }).toBuffer();
+      }
 
       // ขั้น 3: thumbnail สำหรับ preview (300px)
       const thumbBuffer = await sharp(jpegBuffer)
@@ -125,7 +136,7 @@ router.post('/', async (req, res) => {
     await runUpload(req, res);
   } catch (err) {
     if (err instanceof multer.MulterError) {
-      if (err.code === 'LIMIT_FILE_SIZE')  return res.status(400).json({ message: 'ไฟล์มีขนาดเกิน 1MB' });
+      if (err.code === 'LIMIT_FILE_SIZE')  return res.status(400).json({ message: 'ไฟล์มีขนาดเกิน 500KB' });
       if (err.code === 'LIMIT_FILE_COUNT') return res.status(400).json({ message: 'อัปโหลดได้สูงสุด 5 รูปเท่านั้น' });
     }
     return res.status(400).json({ message: err.message });
