@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getQuotaCurrent, refreshQuota, getQuotaHistory } from '../api';
+import { getQuotaCurrent, getQuotaHistory } from '../api';
 
 export default function QuotaPage({ showToast }) {
   const [current, setCurrent]   = useState(null);
   const [history, setHistory]   = useState([]);
   const [loading, setLoading]   = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   // ── โหลดข้อมูลจาก MongoDB (เร็ว, ไม่เรียก LINE API) ─────
   const loadData = useCallback(async () => {
@@ -54,15 +53,8 @@ export default function QuotaPage({ showToast }) {
       <div style={S.headerBar}>
         <div>
           <h2 style={S.title}>📡 LINE Quota</h2>
-          <div style={S.sub}>ติดตามการใช้งานข้อความรายเดือน</div>
+          <div style={S.sub}>ติดตามการใช้งานข้อความรายเดือน (อัปเดตอัตโนมัติทุกวัน 06:00 น.)</div>
         </div>
-        <button
-          style={{ ...S.btnRefresh, opacity: refreshing ? 0.6 : 1 }}
-          disabled={refreshing}
-          onClick={handleRefresh}
-        >
-          {refreshing ? '⏳ กำลังดึงข้อมูล...' : '🔄 รีเฟรชจาก LINE'}
-        </button>
       </div>
 
       {/* ── Current Usage Card ───────────────────────────── */}
@@ -70,7 +62,7 @@ export default function QuotaPage({ showToast }) {
         <div style={S.center}>⏳ กำลังโหลด...</div>
       ) : !current || current.totalUsage === null ? (
         <div style={S.emptyCard}>
-          ยังไม่มีข้อมูลโควตา กด <strong>รีเฟรชจาก LINE</strong> เพื่อดึงข้อมูลครั้งแรก
+          ยังไม่มีข้อมูลโควตา ระบบจะดึงข้อมูลอัตโนมัติเวลา 06:00 น.
         </div>
       ) : (
         <div style={{ ...S.currentCard, borderColor: isWarning ? '#f59e0b' : '#e2e8f0' }}>

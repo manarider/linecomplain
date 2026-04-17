@@ -141,7 +141,7 @@ app.listen(PORT, () => {
 
 // ── Scheduled LINE Notifications (node-cron) ───────────────
 const cron = require('node-cron');
-const { pushGroupPending, pushGroupDailySummary } = require('./src/utils/lineNotify');
+const { pushGroupEODSummary } = require('./src/utils/lineNotify');
 const { checkLineQuota } = require('./src/utils/lineQuota');
 const LineGroup = require('./src/models/LineGroup');
 
@@ -163,16 +163,10 @@ cron.schedule('0 6 * * *', () => {
   checkLineQuota().catch((e) => console.error('Cron quota error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-// 16:30 น. ทุกวันจันทร์-ศุกร์ → แจ้งงานค้าง
-cron.schedule('30 16 * * 1-5', () => {
-  console.log('⏰ Cron: แจ้งงานค้าง 16:30');
-  runCronForAllActiveGroups(pushGroupPending, 'pending');
-}, { timezone: 'Asia/Bangkok' });
-
-// 17:00 น. ทุกวันจันทร์-ศุกร์ → สรุปยอดประจำวัน
+// 17:00 น. ทุกวันจันทร์-ศุกร์ → สรุปยอดประจำวัน + งานค้าง (Flex Message)
 cron.schedule('0 17 * * 1-5', () => {
-  console.log('⏰ Cron: สรุปยอด 17:00');
-  runCronForAllActiveGroups(pushGroupDailySummary, 'summary');
+  console.log('⏰ Cron: สรุปยอด + งานค้าง 17:00');
+  runCronForAllActiveGroups(pushGroupEODSummary, 'eod-summary');
 }, { timezone: 'Asia/Bangkok' });
 
-console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา, 16:30 งานค้าง, 17:00 สรุปวัน) — ดึงกลุ่มจาก DB อัตโนมัติ');
+console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา, 17:00 สรุปวัน+งานค้าง) — ดึงกลุ่มจาก DB อัตโนมัติ');

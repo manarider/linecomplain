@@ -18,7 +18,7 @@ const client = new messagingApi.MessagingApiClient({
 // ── Flex Message: ปุ่มเปิด LIFF แจ้งเรื่อง ────────────────
 const createComplainFlexMessage = (liffUrl) => ({
   type: 'flex',
-  altText: 'กดปุ่มด้านล่างเพื่อแจ้งเรื่องร้องทุกข์',
+  altText: 'กดปุ่มด้านล่างเพื่อแจ้งเรื่อง',
   contents: {
     type: 'bubble',
     size: 'mega',
@@ -28,17 +28,10 @@ const createComplainFlexMessage = (liffUrl) => ({
       contents: [
         {
           type: 'text',
-          text: '📋 แจ้งเรื่องร้องทุกข์',
+          text: '📋 ระบบรับแจ้งเรื่อง',
           weight: 'bold',
           size: 'xl',
           color: '#ffffff',
-        },
-        {
-          type: 'text',
-          text: 'ระบบรับเรื่องร้องทุกข์ออนไลน์',
-          size: 'sm',
-          color: '#ffffffcc',
-          margin: 'sm',
         },
       ],
       backgroundColor: '#1a5f9e',
@@ -50,31 +43,10 @@ const createComplainFlexMessage = (liffUrl) => ({
       contents: [
         {
           type: 'text',
-          text: 'กรอกแบบฟอร์มแจ้งเรื่องร้องทุกข์ผ่านระบบออนไลน์ได้เลยครับ/ค่ะ',
+          text: 'กรอกแบบฟอร์มแจ้งเรื่องผ่านระบบออนไลน์ได้เลยครับ',
           wrap: true,
           size: 'sm',
           color: '#555555',
-        },
-        {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: '📌 ข้อมูลที่ต้องกรอก',
-              weight: 'bold',
-              size: 'sm',
-              margin: 'md',
-            },
-            {
-              type: 'text',
-              text: '• หัวข้อเรื่อง\n• รายละเอียด\n• หน่วยงานที่เกี่ยวข้อง (ไม่บังคับ)\n• เบอร์โทรศัพท์\n• ปักหมุดสถานที่ (ไม่บังคับ)\n• รูปภาพประกอบ (ไม่บังคับ)',
-              wrap: true,
-              size: 'sm',
-              color: '#777777',
-              margin: 'sm',
-            },
-          ],
         },
       ],
       paddingAll: '20px',
@@ -89,7 +61,7 @@ const createComplainFlexMessage = (liffUrl) => ({
           height: 'sm',
           action: {
             type: 'uri',
-            label: '📝 แจ้งเรื่องร้องทุกข์',
+            label: '📝 เข้าสู่ระบบแจ้งเรื่อง',
             uri: liffUrl || `https://liff.line.me/${process.env.LIFF_ID}`,
           },
           color: '#1a5f9e',

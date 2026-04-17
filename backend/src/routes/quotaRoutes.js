@@ -29,20 +29,6 @@ router.get('/current', async (req, res) => {
 });
 
 // ============================================================
-// POST /api/quota/refresh
-// เรียก LINE API เพื่ออัปเดตโควตาทันที แล้ว return ค่าใหม่
-// ============================================================
-router.post('/refresh', async (req, res) => {
-  try {
-    const data = await checkLineQuota();
-    res.json(data);
-  } catch (err) {
-    console.error('POST /api/quota/refresh error:', err.message);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงโควตาจาก LINE API' });
-  }
-});
-
-// ============================================================
 // GET /api/quota/history
 // ดึงประวัติย้อนหลัง 12 เดือน เรียงจากใหม่ → เก่า
 // ============================================================

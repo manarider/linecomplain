@@ -18,6 +18,16 @@ body {
   50%       { background: rgba(245,158,11,0.45); }
 }
 
+/* ── Ticket overdue blink (รอรับเรื่อง > 1 วัน) ──────── */
+@keyframes blink-ticket-no {
+  0%, 100% { color: #d97706; opacity: 1; }
+  50%       { color: #dc2626; opacity: 0.25; }
+}
+.ticket-no-overdue {
+  animation: blink-ticket-no 1.2s ease-in-out infinite;
+  color: #d97706;
+}
+
 /* ── Status Badges ─────────────────────────────────────── */
 .status-badge {
   display: inline-block;

@@ -300,9 +300,15 @@ export default function DashboardPage() {
                   <tr><td colSpan={5} style={S.tableCenter}>ไม่พบรายการ</td></tr>
                 ) : tickets.map(t => {
                   const b = STATUS_BADGE[t.status];
+                  const isOverdue = t.status === 'รอรับเรื่อง' &&
+                    (Date.now() - new Date(t.createdAt).getTime()) > 24 * 60 * 60 * 1000;
                   return (
                     <tr key={t._id} style={S.tableRow} onClick={() => setSelectedId(t._id)}>
-                      <td style={S.td}><strong>{t.ticketNo}</strong></td>
+                      <td style={S.td}>
+                        <strong className={isOverdue ? 'ticket-no-overdue' : ''}>
+                          {t.ticketNo}
+                        </strong>
+                      </td>
                       <td style={S.td}>{t.subject}</td>
                       <td style={{ ...S.td, fontSize: '0.8rem', display: window.innerWidth < 768 ? 'none' : undefined }}>{t.assignedDepartment}</td>
                       <td style={{ ...S.td, fontSize: '0.8rem', display: window.innerWidth < 768 ? 'none' : undefined }}>{formatDate(t.createdAt)}</td>
