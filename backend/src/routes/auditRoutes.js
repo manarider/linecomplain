@@ -54,13 +54,14 @@ router.get('/', async (req, res) => {
       }
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
 
     const [logs, total] = await Promise.all([
       AuditLog.find(filter)
         .sort({ createdAt: -1 })  // ล่าสุดก่อน
         .skip(skip)
-        .limit(Number(limit))
+        .limit(safeLimit)
         .lean(),
       AuditLog.countDocuments(filter),
     ]);
@@ -70,8 +71,8 @@ router.get('/', async (req, res) => {
       pagination: {
         total,
         page:       Number(page),
-        limit:      Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
+        limit:      safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
       },
     });
   } catch (err) {

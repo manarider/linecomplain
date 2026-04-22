@@ -52,7 +52,8 @@ router.use(requireAuth);
 router.get('/tickets', async (req, res) => {
   try {
     const { status, department, page = 1, limit = 20, search } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 200);
+    const skip = (Number(page) - 1) * safeLimit;
 
     // ── สร้าง filter ตามสิทธิ์ ─────────────────────────────
     const filter = {};
@@ -83,7 +84,7 @@ router.get('/tickets', async (req, res) => {
       Ticket.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(safeLimit)
         .select('-history'), // ไม่ดึง history ในหน้ารายการ (ดึงตอนเปิด detail)
       Ticket.countDocuments(filter),
     ]);
@@ -93,8 +94,8 @@ router.get('/tickets', async (req, res) => {
       pagination: {
         total,
         page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
       },
     });
   } catch (err) {
@@ -179,7 +180,10 @@ router.patch('/tickets/:id/status', async (req, res) => {
   }
 
   try {
-    const { status, note } = req.body;
+    const { status } = req.body;
+    const note = typeof req.body.note === 'string'
+      ? req.body.note.slice(0, 500)   // จำกัดความยาว note ไม่เกิน 500 ตัวอักษร
+      : '';
 
     // ตรวจสอบว่า status ที่ส่งมาถูกต้อง
     if (!Object.values(TICKET_STATUS).includes(status)) {
@@ -272,14 +276,14 @@ router.patch(
 
       const previousDepartment = ticket.assignedDepartment;
 
-      // เปลี่ยนหน่วยงาน และตั้งสถานะเป็น "ระหว่างดำเนินการ" (ไปอยู่ใน tab ดำเนินการ)
+      // เปลี่ยนหน่วยงาน และตั้งสถานะเป็น "ส่งต่อ" เพื่อให้เห็นชัดว่าถูกส่งต่อ
       ticket.assignedDepartment = targetDepartment;
-      ticket.status = TICKET_STATUS.IN_PROGRESS;
+      ticket.status = TICKET_STATUS.FORWARDED;
       ticket.assignedToId = req.user.userId;
       ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
 
       ticket.history.push({
-        status: TICKET_STATUS.IN_PROGRESS,
+        status: TICKET_STATUS.FORWARDED,
         note: `ส่งต่อจาก ${previousDepartment} ไป ${targetDepartment}${note ? `: ${note}` : ''}`,
         updatedById: req.user.userId,
         updatedByName: `${req.user.firstName} ${req.user.lastName}`,

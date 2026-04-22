@@ -4,10 +4,40 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const heicConvert = require('heic-convert');
+const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 const Ticket = require('../models/Ticket');
 const { DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
 const { pushTicketConfirm } = require('../utils/lineNotify');
 const { logAction, actorFromLiff, getIp } = require('../utils/auditLog');
+
+// ── Rate Limiter: ป้องกัน spam submit ─────────────────────
+// จำกัด 10 คำร้องต่อ IP ต่อ 15 นาที
+const submitLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'ส่งคำร้องบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่' },
+  keyGenerator: (req) => req.ip || 'unknown',
+});
+
+// ── LIFF ID Token Verification ─────────────────────────────
+// ยืนยัน idToken กับ LINE API เพื่อป้องกันการปลอม lineUserId
+const verifyLiffIdToken = async (idToken, claimedUserId) => {
+  // channelId = ส่วนแรกของ LIFF_ID (รูปแบบ: {channelId}-{suffix})
+  const channelId = (process.env.LIFF_ID || '').split('-')[0];
+  if (!channelId) throw new Error('LIFF_ID ไม่ได้ตั้งค่า');
+
+  const params = new URLSearchParams({ id_token: idToken, client_id: channelId });
+  const resp = await axios.post(
+    'https://api.line.me/oauth2/v2.1/verify',
+    params.toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
+  );
+  // resp.data.sub คือ LINE userId จริง ตรวจสอบว่าตรงกับที่ client อ้างหรือไม่
+  return resp.data.sub === claimedUserId;
+};
 
 const router = express.Router();
 
@@ -130,7 +160,7 @@ const runUpload = (req, res) =>
 // POST /api/tickets
 // รับฟอร์มแจ้งเรื่องจาก LIFF พร้อมอัปโหลดรูปภาพ
 // ============================================================
-router.post('/', async (req, res) => {
+router.post('/', submitLimiter, async (req, res) => {
   // ── รัน multer ก่อน ────────────────────────────────────
   try {
     await runUpload(req, res);
@@ -144,7 +174,7 @@ router.post('/', async (req, res) => {
 
   // ── Main handler ────────────────────────────────────────
   try {
-    const { lineUserId, displayName, subject, description, phone, assignedDepartment, lat, lng, groupId } = req.body;
+    const { lineUserId, displayName, idToken, subject, description, phone, assignedDepartment, lat, lng, groupId } = req.body;
 
     // ── Validate ข้อมูลที่จำเป็น ──────────────────────────
     if (!lineUserId || !subject || !description) {
@@ -155,6 +185,24 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         message: 'กรุณากรอกข้อมูลให้ครบ (lineUserId, subject, description)',
       });
+    }
+
+    // ── ยืนยัน LIFF ID Token กับ LINE API ─────────────────
+    // ป้องกันการปลอม lineUserId โดยตรวจสอบกับ token จริง
+    if (!idToken) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(401).json({ message: 'ไม่พบ idToken กรุณาเปิดแอปผ่าน LINE ใหม่' });
+    }
+    try {
+      const valid = await verifyLiffIdToken(idToken, lineUserId);
+      if (!valid) {
+        if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+        return res.status(403).json({ message: 'ตรวจสอบตัวตนไม่ผ่าน กรุณาเปิดแอปผ่าน LINE ใหม่' });
+      }
+    } catch (tokenErr) {
+      console.error('LIFF token verify error:', tokenErr.message);
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(503).json({ message: 'ไม่สามารถยืนยันตัวตนได้ชั่วคราว กรุณาลองใหม่' });
     }
 
     // ── หน่วยงาน (optional – ถ้าไม่ระบุ ใช้ ไม่แน่ใจ) ────

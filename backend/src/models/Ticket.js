@@ -82,4 +82,9 @@ ticketSchema.pre('save', async function () {
   }
 });
 
+// ── Indexes สำหรับ query ที่ใช้บ่อย ──────────────────────
+ticketSchema.index({ status: 1 });
+ticketSchema.index({ status: 1, assignedDepartment: 1 });
+ticketSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('Ticket', ticketSchema);

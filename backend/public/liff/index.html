@@ -380,33 +380,34 @@
 <script>
   // ── ตัวแปร Global ─────────────────────────────────────────
   let lineProfile = null;
+  let liffIdToken  = null;  // ID Token สำหรับยืนยันตัวตนฝั่ง server
   let selectedFiles = [];
 
   // ── เริ่มต้น LIFF ─────────────────────────────────────────
   const LIFF_ID  = '%%LIFF_ID%%';  // inject โดย server.js
   const API_BASE = '%%DOMAIN%%';   // inject โดย server.js → https://complain.nsm.go.th
 
-  liff.init({ liffId: LIFF_ID })
+  liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true })
     .then(async () => {
       if (!liff.isLoggedIn()) {
         liff.login();
         return;
       }
-      // ดึงข้อมูล Profile จาก LINE
-      lineProfile = await liff.getProfile();
+      // ดึงข้อมูล Profile และ ID Token จาก LINE
+      try {
+        lineProfile = await liff.getProfile();
+        liffIdToken  = liff.getIDToken(); // token สำหรับ verify ฝั่ง server
+      } catch (profileErr) {
+        console.error('getProfile error:', profileErr);
+        showError('ไม่สามารถดึงข้อมูลโปรไฟล์ได้ กรุณาเปิดใหม่อีกครั้ง (' + (profileErr.code || profileErr.message || '') + ')');
+        return;
+      }
 
       // รับ groupId จาก query string ?gid=Cxxx ที่ฝังมาจาก webhook
       const urlParams = new URLSearchParams(window.location.search);
       const gid = urlParams.get('gid');
       if (gid && gid.startsWith('C')) {
         document.getElementById('groupId').value = gid;
-      }
-
-      // ตรวจสอบว่า Add Friend แล้วหรือยัง
-      const friendship = await liff.getFriendship();
-      if (!friendship.friendFlag) {
-        showError('กรุณา Add Friend กับระบบแจ้งเรื่องร้องทุกข์ก่อนใช้งานครับ');
-        document.getElementById('submitBtn').disabled = true;
       }
     })
     .catch((err) => {
@@ -655,6 +656,10 @@
       showError('ไม่สามารถดึงข้อมูล LINE ได้ กรุณาลองใหม่');
       return;
     }
+    if (!liffIdToken) {
+      showError('ไม่พบ ID Token กรุณาปิดแอปแล้วเปิดใหม่ผ่าน LINE');
+      return;
+    }
 
     const subject = document.getElementById('subject').value.trim();
     const description = document.getElementById('description').value.trim();
@@ -670,6 +675,7 @@
     const formData = new FormData();
     formData.append('lineUserId', lineProfile.userId);
     formData.append('displayName', lineProfile.displayName);
+    formData.append('idToken', liffIdToken); // สำหรับยืนยันตัวตนฝั่ง server
     const gid = document.getElementById('groupId').value;
     if (gid) formData.append('groupId', gid);
     formData.append('subject', subject);

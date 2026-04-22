@@ -17,6 +17,11 @@ const fs = require('fs');
 
 const app = express();
 
+// ── Trust Proxy (nginx reverse proxy) ─────────────────────
+// ต้องตั้งก่อน middleware อื่น ๆ เพื่อให้ req.ip และ
+// x-forwarded-for ถูกต้องสำหรับ rate-limit และ audit log
+app.set('trust proxy', 1);
+
 // ── เชื่อมต่อ MongoDB ──────────────────────────────────────
 connectDB();
 
@@ -76,16 +81,22 @@ if (fs.existsSync(frontendDist)) {
 
 // ── LIFF Page: inject LIFF_ID ลงใน HTML ───────────────────
 // ปิด CSP เฉพาะหน้านี้ เพราะ LIFF SDK ต้องการเรียกหลาย domain ของ LINE
-app.get('/liff', (req, res) => {
+const serveLiffPage = (req, res) => {
   res.removeHeader('Content-Security-Policy');
   res.removeHeader('X-Content-Type-Options');
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('Cross-Origin-Opener-Policy');
+  res.removeHeader('Cross-Origin-Resource-Policy');
+  res.removeHeader('Origin-Agent-Cluster');
   const html = fs.readFileSync(path.join(__dirname, 'public/liff/index.html'), 'utf-8');
   res.send(
     html
       .replace('%%LIFF_ID%%', process.env.LIFF_ID || '')
       .replace('%%DOMAIN%%', process.env.DOMAIN || '')
   );
-});
+};
+app.get('/liff', serveLiffPage);
+app.get('/liff/', serveLiffPage);
 
 // ── Routes: Authentication (ไม่ต้อง login ก่อน) ───────────
 app.use('/auth', authRoutes);
