@@ -674,7 +674,9 @@
     // สร้าง FormData
     const formData = new FormData();
     formData.append('lineUserId', lineProfile.userId);
-    formData.append('displayName', lineProfile.displayName);
+    formData.append('displayName', lineProfile.displayName || '');
+    formData.append('pictureUrl', lineProfile.pictureUrl || '');
+    formData.append('statusMessage', lineProfile.statusMessage || '');
     formData.append('idToken', liffIdToken); // สำหรับยืนยันตัวตนฝั่ง server
     const gid = document.getElementById('groupId').value;
     if (gid) formData.append('groupId', gid);

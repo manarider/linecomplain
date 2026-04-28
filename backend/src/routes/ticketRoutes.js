@@ -12,14 +12,22 @@ const { pushTicketConfirm } = require('../utils/lineNotify');
 const { logAction, actorFromLiff, getIp } = require('../utils/auditLog');
 
 // ── Rate Limiter: ป้องกัน spam submit ─────────────────────
-// จำกัด 10 คำร้องต่อ IP ต่อ 15 นาที
+// จำกัด 5 คำร้องต่อ lineUserId ต่อ 1 ชั่วโมง (ป้องกัน spam)
 const submitLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
+  windowMs: 60 * 60 * 1000, // 1 ชั่วโมง
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'ส่งคำร้องบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่' },
-  keyGenerator: (req) => req.ip || 'unknown',
+  message: { message: 'คุณส่งคำร้องบ่อยเกินไป กรุณารอ 1 ชั่วโมงแล้วลองใหม่อีกครั้ง' },
+  keyGenerator: (req) => {
+    // ใช้ lineUserId เป็น key หลัก (แม่นยำกว่า IP)
+    // ถ้าไม่มี lineUserId ใช้ IP แทน
+    return req.body?.lineUserId || req.ip || 'unknown';
+  },
+  // จำกัดเฉพาะ success responses (ไม่นับ error 400/500)
+  skipFailedRequests: true,
+  // ปิด validation เพราะเราจัดการ key เอง
+  validate: false,
 });
 
 // ── LIFF ID Token Verification ─────────────────────────────
@@ -174,16 +182,16 @@ router.post('/', submitLimiter, async (req, res) => {
 
   // ── Main handler ────────────────────────────────────────
   try {
-    const { lineUserId, displayName, idToken, subject, description, phone, assignedDepartment, lat, lng, groupId } = req.body;
+    const { lineUserId, displayName, pictureUrl, statusMessage, idToken, subject, description, phone, assignedDepartment, lat, lng, groupId } = req.body;
 
     // ── Validate ข้อมูลที่จำเป็น ──────────────────────────
-    if (!lineUserId || !subject || !description) {
+    if (!lineUserId || !subject || !description || !phone) {
       // ลบไฟล์ที่อัปโหลดมาถ้า validate ไม่ผ่าน
       if (req.files) {
         req.files.forEach((f) => fs.unlink(f.path, () => {}));
       }
       return res.status(400).json({
-        message: 'กรุณากรอกข้อมูลให้ครบ (lineUserId, subject, description)',
+        message: 'กรุณากรอกข้อมูลให้ครบ (lineUserId, subject, description, phone)',
       });
     }
 
@@ -219,10 +227,12 @@ router.post('/', submitLimiter, async (req, res) => {
     // ── บันทึก Ticket ลง MongoDB ──────────────────────────
     const ticket = new Ticket({
       lineUserId,
-      displayName: displayName || '',
+      displayName:   (displayName   || '').slice(0, 100),
+      pictureUrl:    (pictureUrl    || '').slice(0, 500),
+      statusMessage: (statusMessage || '').slice(0, 200),
       subject: subject.trim(),
       description: description.trim(),
-      phone: phone ? phone.trim() : '',
+      phone: phone.trim(),
       images: imageFiles,
       assignedDepartment: dept,
       ...(location && { location }),

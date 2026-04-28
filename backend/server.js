@@ -12,6 +12,7 @@ const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const lineGroupRoutes = require('./src/routes/lineGroupRoutes');
 const quotaRoutes = require('./src/routes/quotaRoutes');
 const auditRoutes = require('./src/routes/auditRoutes');
+const statisticsRoutes = require('./src/routes/statisticsRoutes');
 const path = require('path');
 const fs = require('fs');
 
@@ -115,6 +116,9 @@ app.use('/api/quota', quotaRoutes);
 
 // ── Routes: Audit Log (ต้อง login + superadmin) ─────
 app.use('/api/audit', auditRoutes);
+
+// ── Routes: Statistics (ต้อง login + admin/executive/superadmin) ─────
+app.use('/api/statistics', statisticsRoutes);
 
 // ── Health Check ──────────────────────────────────────
 app.get('/health', (req, res) => {

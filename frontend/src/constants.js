@@ -21,7 +21,7 @@ export const TICKET_STATUS = {
   REJECTED:    'ไม่รับเรื่อง',
 };
 
-export const FULL_ACCESS_ROLES = ['superadmin', 'admin', 'executive'];
+export const FULL_ACCESS_ROLES = ['superadmin', 'admin', 'executive', 'staff'];
 
 export const STATUS_BADGE = {
   'รอรับเรื่อง':       { label: '⏳ รอรับเรื่อง',    cls: 'badge-pending'    },

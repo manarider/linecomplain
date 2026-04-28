@@ -1,5 +1,5 @@
 # 📋 แผนการพัฒนาระบบรับเรื่องร้องทุกข์ (CAPP — Complaint Application)
-> อัปเดตล่าสุด: 10 เมษายน 2569
+> อัปเดตล่าสุด: 28 เมษายน 2569
 
 ---
 
@@ -37,9 +37,13 @@
 - [x] Dashboard protected ด้วย JWT cookie — redirect login อัตโนมัติ
 - [x] `GET /api/dashboard/tickets` — รายการพร้อม pagination, search (escape regex), filter สถานะ/หน่วยงาน
 - [x] `GET /api/dashboard/tickets/summary` — นับจำนวนตามสถานะ (Stat Cards)
-- [x] **Logic คัดกรอง:** `staff` เห็นเฉพาะ `assignedDepartment === subDepartment`, `admin/superadmin/executive` เห็นทั้งหมด
+- [x] **Logic คัดกรอง:**
+  - หมวด "รอรับเรื่อง", "เสร็จสิ้น", "ไม่รับเรื่อง", "ทั้งหมด" → ทุกคนเห็นทุกหน่วยงาน
+  - หมวด "ดำเนินการ" และ "ส่งต่อ" → staff/executive เห็นเฉพาะหน่วยงานตัวเอง, admin/superadmin เห็นทั้งหมด
+  - ใช้ `UNRESTRICTED_ROLES` (superadmin, admin) และ `FULL_ACCESS_ROLES` (รวม executive, staff)
+- [x] **Auto-assign Department:** เมื่อรับเรื่อง (เปลี่ยนเป็น "ระหว่างดำเนินการ") หากหน่วยงานเป็น "ไม่แน่ใจ" จะเปลี่ยนเป็นหน่วยงานของผู้รับเรื่องอัตโนมัติ + บันทึก history
 - [x] `PATCH /api/dashboard/tickets/:id/status` — อัปเดตสถานะ + push LINE แจ้งผู้แจ้ง
-- [x] `PATCH /api/dashboard/tickets/:id/forward` — ส่งต่อ (admin+ เท่านั้น) + push LINE
+- [x] `PATCH /api/dashboard/tickets/:id/forward` — ส่งต่อ (staff+ ได้) + เปลี่ยนหน่วยงาน + บันทึกผู้ส่งใน history + push LINE
 - [x] TicketModal: รูปภาพ, history, ฟอร์มอัปเดต/ส่งต่อ — ซ่อนส่วนดำเนินการเมื่อสถานะ "เสร็จสิ้น" แล้ว
 - [x] Dashboard responsive: Sidebar slide drawer บนมือถือ, ปุ่ม logout มุมขวาบน, แสดงชื่อหน่วยงานใต้หัวข้อ
 
@@ -56,6 +60,7 @@
 - [x] `AuditLog` model — TTL index 120 วัน (ลบอัตโนมัติ)
 - [x] `logAction()` helper — บันทึก log แบบ fire-and-forget (ไม่ block response)
 - [x] บันทึก log ที่: LOGIN, LOGIN_FAILED, LOGOUT, CREATE_TICKET, UPDATE_STATUS, FORWARD_TICKET
+- [x] บันทึก meta data เพิ่มเติม: การเปลี่ยนหน่วยงานจาก "ไม่แน่ใจ", ผู้ส่งต่อ, หน่วยงานต้นทาง-ปลายทาง
 - [x] `GET /api/audit` — ค้นหา/กรอง/pagination (superadmin เท่านั้น)
 - [x] `GET /api/audit/meta` — distinct actions & categories สำหรับ dropdown
 - [x] `AuditLogPage.jsx` — หน้าดู audit log พร้อม search, filter action/category, date range, pagination
@@ -70,7 +75,19 @@
 - [x] Regex search input escaping (ป้องกัน ReDoS)
 - [x] Role-based access control ทุก protected route
 
-## 📊 Phase 7: Statistics & Report (แผนในอนาคต)
-- [ ] หน้าสรุปสถิติรายเดือน/รายปีงบประมาณ สำหรับ executive/admin
-- [ ] Export รายงาน PDF / Excel
-- [ ] Rate limiting สำหรับ `POST /api/tickets` (ป้องกัน spam)
+## ✅ Phase 7: Statistics & Report (สถิติและรายงาน)
+- [x] สร้างปุ่มพิมพ์ในรายการคำร้อง สำหรับพิมพ์เอกสารเพื่อนำไปดำเนินการต่อ
+  - ปุ่ม "🖨️ พิมพ์" ใน TicketModal header
+  - Print CSS สำหรับจัดรูปแบบเอกสารให้สวยงาม ซ่อน UI elements ที่ไม่จำเป็น
+  - Print header พร้อมหัวเอกสารราชการ
+- [x] หน้าสรุปสถิติรายเดือน/รายปีงบประมาณ สำหรับ executive/admin
+  - API `/api/statistics` สำหรับดึงข้อมูลสถิติ (monthly, fiscal year, department)
+  - StatisticsPage.jsx พร้อมกราฟแท่งรายเดือน และตารางสรุปตามหน่วยงาน
+  - เมนู "📊 สถิติและรายงาน" สำหรับ admin/executive/superadmin
+- [x] Export รายงาน Excel
+  - ฟังก์ชัน exportToExcel ใช้ library xlsx
+  - สร้าง 3 sheets: สรุปปีงบประมาณ, รายเดือน, ตามหน่วยงาน
+  - ปุ่ม "📥 Export Excel" ในหน้าสถิติ
+- [x] Rate limiting สำหรับ `POST /api/tickets` (ป้องกัน spam)
+  - จำกัด 5 คำร้อง/ชั่วโมง ต่อ lineUserId (แทน IP)
+  - skipFailedRequests: true (ไม่นับ request ที่ error)

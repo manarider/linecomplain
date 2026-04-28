@@ -130,6 +130,353 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     ticket?.assignedDepartment === user.subDepartment
   );
 
+  const handlePrint = () => {
+    if (!ticket) return;
+
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      showToast('กรุณาอนุญาตให้เปิด popup สำหรับการพิมพ์', 'error');
+      return;
+    }
+
+    const printDate = new Date().toLocaleDateString('th-TH', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    // สร้าง HTML เอกสารราชการ
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>เอกสารคำร้อง ${ticket.ticketNo}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 2.5cm 2cm 2cm 3cm;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'TH SarabunPSK', 'TH Sarabun New', 'Sarabun', serif;
+      font-size: 16pt;
+      line-height: 1.3;
+      color: #000;
+      background: white;
+    }
+
+    .page {
+      page-break-after: always;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    /* หัวกระดาษ */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20pt;
+    }
+
+    .header-center {
+      text-align: center;
+      flex: 2;
+    }
+
+    .header-center h1 {
+      font-size: 20pt;
+      font-weight: 700;
+      margin: 0 0 4pt;
+    }
+
+    .header-center h2 {
+      font-size: 18pt;
+      font-weight: 400;
+      margin: 0 0 4pt;
+    }
+
+    .header-center div {
+      font-size: 14pt;
+    }
+
+    .header-left,
+    .header-right {
+      flex: 1;
+    }
+
+    .header-right {
+      text-align: right;
+    }
+
+    .ticket-box {
+      border: 2pt solid #000;
+      padding: 6pt 10pt;
+      display: inline-block;
+      font-size: 14pt;
+    }
+
+    .divider {
+      border-bottom: 2pt solid #000;
+      margin-bottom: 16pt;
+    }
+
+    /* ตาราง */
+    .print-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20pt;
+    }
+
+    .print-table td {
+      border: 1pt solid #000;
+      padding: 8pt 12pt;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .print-table tr:first-child td {
+      font-weight: 700;
+      background-color: #f5f5f5;
+      text-align: center;
+    }
+
+    .print-table td:first-child {
+      font-weight: 700;
+      width: 35%;
+    }
+
+    /* Status Badge */
+    .status-badge {
+      border: 1pt solid #000;
+      padding: 2pt 8pt;
+      font-weight: 700;
+      display: inline-block;
+    }
+
+    /* Section Title */
+    .section-title {
+      font-size: 16pt;
+      font-weight: 700;
+      margin: 20pt 0 12pt;
+    }
+
+    /* ภาคผนวก */
+    .appendix-header {
+      font-size: 16pt;
+      font-weight: 700;
+      margin-bottom: 20pt;
+      padding-bottom: 12pt;
+      border-bottom: 1pt solid #000;
+    }
+
+    /* รูปภาพ */
+    .img-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12pt;
+      margin: 12pt 0;
+    }
+
+    .img-grid img {
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      border: 1pt solid #ccc;
+    }
+
+    /* ประวัติ */
+    .history-item {
+      padding: 8pt 0;
+      border-bottom: 1pt solid #ccc;
+      margin-bottom: 8pt;
+    }
+
+    .history-note {
+      font-size: 14pt;
+      color: #333;
+      margin-top: 4pt;
+    }
+
+    .history-meta {
+      font-size: 12pt;
+      color: #666;
+      margin-top: 2pt;
+    }
+
+    /* Link */
+    a {
+      color: #1a5f9e;
+      text-decoration: underline;
+    }
+
+    .note-text {
+      text-align: center;
+      color: #666;
+      font-size: 14pt;
+      margin-top: 20pt;
+    }
+  </style>
+</head>
+<body>
+  <!-- หน้าที่ 1: ข้อมูลหลัก -->
+  <div class="page">
+    <div class="header">
+      <div class="header-left"></div>
+      <div class="header-center">
+        <h1>เทศบาลนครนครสวรรค์</h1>
+        <h2>แบบฟอร์มคำร้องออนไลน์</h2>
+        <div>ของดิจิทัลประชาไทย</div>
+      </div>
+      <div class="header-right">
+        <div class="ticket-box">${ticket.ticketNo}</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+
+    <div style="font-size: 16pt; margin-bottom: 12pt;">
+      วันที่พิมพ์: ${printDate}
+      <span style="float: right;">หน่วยงาน: ${ticket.assignedDepartment}</span>
+    </div>
+
+    <table class="print-table">
+      <tbody>
+        <tr>
+          <td>หัวข้อการ</td>
+          <td>รายละเอียดข้อมูล</td>
+        </tr>
+        <tr>
+          <td>สถานะ</td>
+          <td><span class="status-badge">${badge?.label || ticket.status}</span></td>
+        </tr>
+        <tr>
+          <td>ชื่อผู้แจ้ง</td>
+          <td>${ticket.displayName || '-'}</td>
+        </tr>
+        <tr>
+          <td>เบอร์โทรศัพท์</td>
+          <td>${ticket.phone || '-'}</td>
+        </tr>
+        <tr>
+          <td>หัวข้อ</td>
+          <td><strong>${ticket.subject}</strong></td>
+        </tr>
+        <tr>
+          <td>รายละเอียด</td>
+          <td><div style="white-space: pre-wrap; line-height: 1.6;">${ticket.description}</div></td>
+        </tr>
+        <tr>
+          <td>หน่วยงานรับผิดชอบ</td>
+          <td>${ticket.assignedDepartment}</td>
+        </tr>
+        <tr>
+          <td>วันที่แจ้ง</td>
+          <td>${formatDate(ticket.createdAt)}</td>
+        </tr>
+        ${ticket.assignedToName ? `
+        <tr>
+          <td>ผู้รับเรื่อง</td>
+          <td>${ticket.assignedToName}</td>
+        </tr>
+        ` : ''}
+      </tbody>
+    </table>
+  </div>
+
+  ${(ticket.images?.length > 0 || ticket.completionImages?.length > 0 || ticket.history?.length > 0) ? `
+  <!-- หน้าที่ 2: ภาคผนวก -->
+  <div class="page">
+    <div class="appendix-header">ภาคผนวก</div>
+
+    ${ticket.images?.length > 0 ? `
+    <div class="section-title">รูปภาพประกอบ</div>
+    <div class="img-grid">
+      ${ticket.images.map(f => `<img src="/uploads/${f}" alt="รูปประกอบ" />`).join('')}
+    </div>
+    ` : ''}
+
+    ${ticket.completionImages?.length > 0 ? `
+    <div class="section-title">รูปภาพผลการดำเนินงาน</div>
+    <div class="img-grid">
+      ${ticket.completionImages.map(f => `<img src="/uploads/${f}" alt="รูปผลงาน" />`).join('')}
+    </div>
+    ` : ''}
+
+    ${ticket.history?.length > 0 ? `
+    <div class="section-title">ประวัติการดำเนินการ</div>
+    ${[...ticket.history].reverse().map(h => {
+      const hb = STATUS_BADGE[h.status];
+      return `
+      <div class="history-item">
+        <span class="status-badge">${hb?.label || h.status}</span>
+        ${h.note ? `<div class="history-note">หมายเหตุ: ${h.note}</div>` : ''}
+        <div class="history-meta">โดย ${h.updatedByName || '-'} · ${formatDate(h.updatedAt)}</div>
+      </div>
+      `;
+    }).join('')}
+    ` : ''}
+  </div>
+  ` : ''}
+
+  ${ticket.location?.lat && ticket.location?.lng ? `
+  <!-- หน้าที่ 3: พิกัดแผนที่ -->
+  <div class="page">
+    <div class="appendix-header">พิกัดแผนที่</div>
+
+    <table class="print-table">
+      <tbody>
+        <tr>
+          <td>ละติจูด (Latitude)</td>
+          <td>${ticket.location.lat}</td>
+        </tr>
+        <tr>
+          <td>ลองจิจูด (Longitude)</td>
+          <td>${ticket.location.lng}</td>
+        </tr>
+        <tr>
+          <td>ลิงก์ Google Maps</td>
+          <td>
+            <a href="https://www.google.com/maps?q=${ticket.location.lat},${ticket.location.lng}" 
+               target="_blank" rel="noopener noreferrer">
+              เปิดดูในแผนที่
+            </a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note-text">
+      หมายเหตุ: สามารถสแกน QR Code เพื่อเปิดดูตำแหน่งบน Google Maps ได้
+    </div>
+  </div>
+  ` : ''}
+</body>
+</html>
+    `.trim();
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    // รอให้โหลดเสร็จแล้วพิมพ์
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    };
+  };
+
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       {/* Toast */}
@@ -145,7 +492,14 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
           <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>
             {ticket ? ticket.ticketNo : 'รายละเอียดคำร้อง'}
           </h3>
-          <button style={S.closeBtn} onClick={onClose}>✕</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {ticket && (
+              <button style={S.printBtn} onClick={handlePrint} title="พิมพ์เอกสาร">
+                🖨️ พิมพ์
+              </button>
+            )}
+            <button style={S.closeBtn} onClick={onClose}>✕</button>
+          </div>
         </div>
 
         {/* Body */}
@@ -157,21 +511,30 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
           ) : (
             <>
               {/* ข้อมูลหลัก */}
+              <SectionTitle>📋 สถานะ</SectionTitle>
               <Row label="สถานะ">
                 <span className={`status-badge ${badge?.cls}`}>{badge?.label || ticket.status}</span>
               </Row>
-              <Row label="ผู้แจ้ง">{ticket.displayName || '-'}</Row>
+
+              <SectionTitle>👤 ผู้แจ้ง</SectionTitle>
+              <Row label="ชื่อ">{ticket.displayName || '-'}</Row>
               <Row label="เบอร์โทร">{ticket.phone || '-'}</Row>
+
+              <SectionTitle>📝 รายละเอียด</SectionTitle>
               <Row label="หัวข้อ"><strong>{ticket.subject}</strong></Row>
-              <Row label="รายละเอียด">{ticket.description}</Row>
-              <Row label="หน่วยงาน">{ticket.assignedDepartment}</Row>
-              <Row label="วันที่แจ้ง">{formatDate(ticket.createdAt)}</Row>
+              <Row label="รายละเอียด">
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{ticket.description}</div>
+              </Row>
+
+              <SectionTitle>🏢 หน่วยงาน</SectionTitle>
+              <Row label="รับผิดชอบ">{ticket.assignedDepartment}</Row>
               {ticket.assignedToName && <Row label="ผู้รับเรื่อง">{ticket.assignedToName}</Row>}
+              <Row label="วันที่แจ้ง">{formatDate(ticket.createdAt)}</Row>
 
               {/* รูปภาพประกอบ */}
               {ticket.images?.length > 0 && (
                 <>
-                  <SectionTitle>🖼️ รูปภาพ</SectionTitle>
+                  <SectionTitle>📷 รูปภาพประกอบ</SectionTitle>
                   <div style={S.imgGrid}>
                     {ticket.images.map(f => (
                       <img
@@ -189,7 +552,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               {/* รูปผลการดำเนินงาน */}
               {ticket.completionImages?.length > 0 && (
                 <>
-                  <SectionTitle>📸 รูปผลการดำเนินงาน</SectionTitle>
+                  <SectionTitle>✅ รูปภาพผลการดำเนินงาน</SectionTitle>
                   <div style={S.imgGrid}>
                     {ticket.completionImages.map(f => (
                       <img
@@ -204,7 +567,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                 </>
               )}
 
-              {/* ประวัติ */}
+              {/* ประวัติการดำเนินการ */}
               {ticket.history?.length > 0 && (
                 <>
                   <SectionTitle>📜 ประวัติการดำเนินการ</SectionTitle>
@@ -213,13 +576,32 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                     return (
                       <div key={i} style={S.historyItem}>
                         <span className={`status-badge ${hb?.cls}`}>{hb?.label || h.status}</span>
-                        {h.note && <div style={{ fontSize: '0.82rem', color: '#555', marginTop: 3 }}>📝 {h.note}</div>}
+                        {h.note && <div style={{ fontSize: '0.82rem', color: '#555', marginTop: 3 }}>หมายเหตุ: {h.note}</div>}
                         <div style={{ fontSize: '0.75rem', color: '#aaa', marginTop: 2 }}>
                           โดย {h.updatedByName || '-'} · {formatDate(h.updatedAt)}
                         </div>
                       </div>
                     );
                   })}
+                </>
+              )}
+
+              {/* พิกัดแผนที่ (ถ้ามี) */}
+              {ticket.location?.lat && ticket.location?.lng && (
+                <>
+                  <SectionTitle>📍 พิกัดแผนที่</SectionTitle>
+                  <Row label="ละติจูด">{ticket.location.lat}</Row>
+                  <Row label="ลองจิจูด">{ticket.location.lng}</Row>
+                  <Row label="Google Maps">
+                    <a 
+                      href={`https://www.google.com/maps?q=${ticket.location.lat},${ticket.location.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#1a5f9e', textDecoration: 'underline' }}
+                    >
+                      เปิดดูในแผนที่
+                    </a>
+                  </Row>
                 </>
               )}
             </>
@@ -347,7 +729,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
 // ── sub components ─────────────────────────────────────────
 function Row({ label, children }) {
   return (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: '0.88rem' }}>
+    <div className="print-row" style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: '0.88rem' }}>
       <span style={{ color: '#718096', minWidth: 110, flexShrink: 0 }}>{label}</span>
       <span style={{ fontWeight: 500 }}>{children}</span>
     </div>
@@ -355,7 +737,7 @@ function Row({ label, children }) {
 }
 function SectionTitle({ children }) {
   return (
-    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#718096', margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+    <div className="print-section-title" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#718096', margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
       {children}
     </div>
   );
@@ -367,6 +749,9 @@ const S = {
     position: 'fixed', inset: 0,
     background: 'rgba(0,0,0,0.45)', zIndex: 100,
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+  },
+  printHeader: {
+    display: 'none',
   },
   modal: {
     background: '#fff', borderRadius: 14, width: '100%', maxWidth: 600,
@@ -381,6 +766,12 @@ const S = {
   closeBtn: {
     background: 'none', border: 'none', fontSize: '1.3rem',
     cursor: 'pointer', color: '#718096', lineHeight: 1,
+  },
+  printBtn: {
+    background: '#059669', color: '#fff', border: 'none',
+    padding: '6px 14px', borderRadius: 6, fontSize: '0.85rem',
+    fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    display: 'flex', alignItems: 'center', gap: 4,
   },
   modalBody: { padding: '20px 20px 0' },
   actionForm: { padding: '0 20px 20px', borderTop: '1px solid #e2e8f0', marginTop: 16, paddingTop: 16 },
@@ -423,5 +814,26 @@ const S = {
     color: '#fff', padding: '12px 18px', borderRadius: 8,
     fontSize: '0.88rem', boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
     pointerEvents: 'none',
+  },
+  printTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontFamily: 'TH SarabunPSK, TH Sarabun New, Sarabun, serif',
+    fontSize: '16pt',
+  },
+  printTableHeaderCell: {
+    border: '1pt solid #000',
+    padding: '8pt 12pt',
+    fontWeight: 700,
+    backgroundColor: '#f5f5f5',
+    textAlign: 'left',
+    verticalAlign: 'top',
+    width: '35%',
+  },
+  printTableCell: {
+    border: '1pt solid #000',
+    padding: '8pt 12pt',
+    textAlign: 'left',
+    verticalAlign: 'top',
   },
 };

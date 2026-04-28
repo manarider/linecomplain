@@ -48,11 +48,18 @@ const STAFF_ROLES = {
   USER:       'user',
 };
 
-// Roles ที่เห็นคำร้องได้ทุกหน่วยงาน + ส่งต่อได้
+// Roles ที่เห็นคำร้องได้ทุกหน่วยงานโดยไม่จำกัด
+const UNRESTRICTED_ROLES = [
+  STAFF_ROLES.SUPERADMIN,
+  STAFF_ROLES.ADMIN,
+];
+
+// Roles ที่มีสิทธิ์เต็ม (ส่งต่อได้, เข้าสถิติได้) แต่จำกัดการมองเห็นตามหน่วยงาน
 const FULL_ACCESS_ROLES = [
   STAFF_ROLES.SUPERADMIN,
   STAFF_ROLES.ADMIN,
   STAFF_ROLES.EXECUTIVE,
+  STAFF_ROLES.STAFF,
 ];
 
 module.exports = {
@@ -60,5 +67,6 @@ module.exports = {
   SYSTEM_SETTINGS,
   TICKET_STATUS,
   STAFF_ROLES,
+  UNRESTRICTED_ROLES,
   FULL_ACCESS_ROLES,
 };

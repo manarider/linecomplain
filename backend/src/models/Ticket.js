@@ -12,9 +12,11 @@ const ticketSchema = new mongoose.Schema(
     },
 
     // ── ข้อมูลผู้แจ้ง (จาก LINE LIFF) ────────────────────
-    lineUserId: { type: String, required: true, index: true },
-    displayName: { type: String }, // ชื่อ LINE profile
-    groupId: { type: String, default: null }, // กรณีส่งจากกลุ่ม LINE
+    lineUserId:     { type: String, required: true, index: true },
+    displayName:    { type: String, default: '' },        // ชื่อ LINE profile
+    pictureUrl:     { type: String, default: '' },        // URL รูปโปรไฟล์ LINE
+    statusMessage:  { type: String, default: '' },        // ข้อความสถานะ LINE
+    groupId:        { type: String, default: null },      // กรณีส่งจากกลุ่ม LINE
 
     // ── รายละเอียดเรื่อง ──────────────────────────────────
     subject: { type: String, required: true, trim: true },

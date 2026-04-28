@@ -1,17 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getQuotaCurrent, getQuotaHistory } from '../api';
+import { getQuotaCurrent, getQuotaHistory, refreshQuota, getQuotaPushStats } from '../api';
 
 export default function QuotaPage({ showToast }) {
-  const [current, setCurrent]   = useState(null);
-  const [history, setHistory]   = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [current, setCurrent]     = useState(null);
+  const [history, setHistory]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pushStats, setPushStats] = useState(null);
 
   // ── โหลดข้อมูลจาก MongoDB (เร็ว, ไม่เรียก LINE API) ─────
   const loadData = useCallback(async () => {
     try {
-      const [cur, hist] = await Promise.all([getQuotaCurrent(), getQuotaHistory()]);
+      const [cur, hist, ps] = await Promise.all([getQuotaCurrent(), getQuotaHistory(), getQuotaPushStats()]);
       setCurrent(cur);
       setHistory(hist);
+      setPushStats(ps);
     } catch {
       showToast?.('เกิดข้อผิดพลาดในการโหลดข้อมูลโควตา', 'error');
     } finally {
@@ -55,6 +58,13 @@ export default function QuotaPage({ showToast }) {
           <h2 style={S.title}>📡 LINE Quota</h2>
           <div style={S.sub}>ติดตามการใช้งานข้อความรายเดือน (อัปเดตอัตโนมัติทุกวัน 06:00 น.)</div>
         </div>
+        <button
+          style={{ ...S.btnRefresh, opacity: refreshing ? 0.6 : 1 }}
+          onClick={handleRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? '⏳ กำลังตรวจสอบ...' : '🔄 ตรวจสอบโควตา'}
+        </button>
       </div>
 
       {/* ── Current Usage Card ───────────────────────────── */}
@@ -113,6 +123,48 @@ export default function QuotaPage({ showToast }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Paid Message Breakdown ───────────────────────── */}
+      {pushStats && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#475569', marginBottom: 10 }}>
+            💬 ข้อความแบบมีค่าใช้จ่ายที่ระบบส่งเดือนนี้
+          </div>
+          <div style={S.pushStatsGrid}>
+            <PushStatBox
+              icon="✅"
+              label="ยืนยันรับเรื่อง (ส่วนตัว)"
+              value={pushStats.confirmUser}
+              desc="pushTicketConfirm → lineUserId"
+            />
+            <PushStatBox
+              icon="👥"
+              label="ยืนยันรับเรื่อง (กลุ่ม)"
+              value={pushStats.confirmGroup}
+              desc="pushTicketConfirm → groupId"
+            />
+            <PushStatBox
+              icon="🔔"
+              label="แจ้งอัปเดตสถานะ"
+              value={pushStats.statusUpdate}
+              desc="pushStatusUpdate → lineUserId"
+            />
+            <PushStatBox
+              icon="📊"
+              label="สรุปประจำวัน (ประมาณการ)"
+              value={pushStats.eodSummary}
+              desc={`${pushStats.activeGroups} กลุ่ม × ${Math.round(pushStats.eodSummary / (pushStats.activeGroups || 1))} วัน`}
+              estimated
+            />
+          </div>
+          <div style={S.pushStatTotal}>
+            รวมโดยประมาณ: <strong>{pushStats.total?.toLocaleString()}</strong> ข้อความ
+            <span style={{ fontSize: '0.73rem', color: '#94a3b8', marginLeft: 8 }}>
+              (นับจากฐานข้อมูล ไม่รวมการส่งอื่น ๆ นอกระบบ)
+            </span>
+          </div>
         </div>
       )}
 
@@ -183,6 +235,21 @@ function StatBox({ label, value, unit, color }) {
       <div style={{ fontSize: '2rem', fontWeight: 800, color }}>{value ?? '-'}</div>
       <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{unit}</div>
       <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
+function PushStatBox({ icon, label, value, desc, estimated }) {
+  return (
+    <div style={S.pushStatBox}>
+      <div style={{ fontSize: '1.5rem' }}>{icon}</div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1a5f9e', lineHeight: 1.1 }}>
+        {(value ?? 0).toLocaleString()}
+      </div>
+      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginTop: 2 }}>{label}</div>
+      <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: 3 }}>
+        {desc}{estimated && <span style={{ color: '#f59e0b', marginLeft: 4 }}>~ประมาณการ</span>}
+      </div>
     </div>
   );
 }
@@ -258,5 +325,21 @@ const S = {
   badgeOk: {
     display: 'inline-block', padding: '2px 10px', borderRadius: 20,
     background: '#dcfce7', color: '#166534', fontSize: '0.75rem', fontWeight: 600,
+  },
+  pushStatsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+    gap: 12,
+  },
+  pushStatBox: {
+    background: '#fff', borderRadius: 10, padding: '14px 12px',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
+    border: '1.5px solid #e2e8f0',
+    textAlign: 'center',
+  },
+  pushStatTotal: {
+    marginTop: 10, padding: '8px 14px',
+    background: '#f1f5f9', borderRadius: 8,
+    fontSize: '0.85rem', color: '#374151',
   },
 };

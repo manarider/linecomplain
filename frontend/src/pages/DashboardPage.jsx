@@ -7,6 +7,8 @@ import LineGroupsPage from './LineGroupsPage';
 import ComplainantsPage from './ComplainantsPage';
 import QuotaPage from './QuotaPage';
 import AuditLogPage from './AuditLogPage';
+import StatisticsPage from './StatisticsPage';
+import LineUsersPage from './LineUsersPage';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -117,7 +119,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Sidebar ─────────────────────────────────────── */}
-      <aside style={{
+      <aside className="no-print" style={{
         ...S.sidebar,
         ...(isMobile ? {
           position: 'fixed', top: 0, left: 0, bottom: 0,
@@ -152,6 +154,12 @@ export default function DashboardPage() {
             style={{ ...S.navItem, ...(activeMenu === 'tickets' ? S.navItemActive : {}) }}
             onClick={() => { setActiveMenu('tickets'); setSidebarOpen(false); }}
           >📋 รายการคำร้อง</div>
+          {user && ['admin', 'executive', 'staff', 'superadmin'].includes(user.role) && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'statistics' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('statistics'); setSidebarOpen(false); }}
+            >📊 สถิติและรายงาน</div>
+          )}
           {user && (user.role === 'superadmin' || user.role === 'admin') && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'line-groups' ? S.navItemActive : {}) }}
@@ -162,7 +170,7 @@ export default function DashboardPage() {
             <div
               style={{ ...S.navItem, ...(activeMenu === 'complainants' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('complainants'); setSidebarOpen(false); }}
-            >📊 สถิติผู้ร้อง</div>
+            >👥 สถิติผู้ร้อง</div>
           )}
           {user && user.role === 'superadmin' && (
             <div
@@ -179,6 +187,7 @@ export default function DashboardPage() {
               )}
             </div>
           )}
+          {/* เมนู ผู้ใช้ LINE — ซ่อนไว้ก่อน รอปรับปรุง */}
           {user && user.role === 'superadmin' && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'audit' ? S.navItemActive : {}) }}
@@ -195,7 +204,7 @@ export default function DashboardPage() {
       </aside>
 
       {/* ── Main ─────────────────────────────────────────── */}
-      <div style={S.main}>
+      <div className="no-print" style={S.main}>
         <div style={S.topbar}>
           {/* Hamburger — แสดงเฉพาะบนโมบาย */}
           {isMobile && (
@@ -209,7 +218,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '📊 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -223,6 +232,9 @@ export default function DashboardPage() {
         </div>
 
         <div style={S.content}>
+          {activeMenu === 'statistics' && (
+            <StatisticsPage showToast={showToast} />
+          )}
           {activeMenu === 'line-groups' && (
             <LineGroupsPage showToast={showToast} />
           )}
@@ -234,6 +246,9 @@ export default function DashboardPage() {
           )}
           {activeMenu === 'audit' && (
             <AuditLogPage showToast={showToast} />
+          )}
+          {activeMenu === 'line-users' && (
+            <LineUsersPage showToast={showToast} />
           )}
           {activeMenu === 'tickets' && (<>
 

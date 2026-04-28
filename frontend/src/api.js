@@ -62,11 +62,17 @@ export const getComplainants = (params) =>
   request(`/api/dashboard/complainants?${new URLSearchParams(params)}`);
 export const getComplainantTickets = (lineUserId, params) =>
   request(`/api/dashboard/complainants/${encodeURIComponent(lineUserId)}/tickets?${new URLSearchParams(params)}`);
+export const getComplainantProfiles = (params) =>
+  request(`/api/dashboard/complainant-profiles?${new URLSearchParams(params)}`);
 
 // ── LINE Quota (superadmin) ───────────────────────────────
-export const getQuotaCurrent = () => request('/api/quota/current');
-export const getQuotaHistory = () => request('/api/quota/history');
+export const getQuotaCurrent   = () => request('/api/quota/current');
+export const getQuotaHistory   = () => request('/api/quota/history');
+export const refreshQuota      = () => request('/api/quota/refresh', { method: 'POST' });
+export const getQuotaPushStats = () => request('/api/quota/push-stats');
 
 // ── Audit Log (superadmin) ────────────────────────────────
 export const getAuditLogs = (params) => request(`/api/audit?${new URLSearchParams(params)}`);
 export const getAuditMeta = ()        => request('/api/audit/meta');
+// ── Statistics (admin/executive/superadmin) ───────────────
+export const getStatistics = (params) => request(`/api/statistics?${new URLSearchParams(params)}`);

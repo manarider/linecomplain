@@ -5,7 +5,7 @@ const fs = require('fs');
 const Ticket = require('../models/Ticket');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { pushStatusUpdate } = require('../utils/lineNotify');
-const { TICKET_STATUS, FULL_ACCESS_ROLES, DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
+const { TICKET_STATUS, UNRESTRICTED_ROLES, FULL_ACCESS_ROLES, DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
 const { logAction, actorFromUser } = require('../utils/auditLog');
 
 const router = express.Router();
@@ -58,16 +58,16 @@ router.get('/tickets', async (req, res) => {
     // ── สร้าง filter ตามสิทธิ์ ─────────────────────────────
     const filter = {};
 
-    // staff เห็นเฉพาะงานหน่วยงานตัวเองเมื่อดู "ระหว่างดำเนินการ" เท่านั้น
+    // staff/executive เห็นเฉพาะงานหน่วยงานตัวเองเมื่อดู "ระหว่างดำเนินการ" และ "ส่งต่อ"
     // แท็บอื่น (รอรับเรื่อง, เสร็จสิ้น, ไม่รับเรื่อง, ทั้งหมด) เห็นได้ทุกหน่วยงาน
-    const isStaff = !FULL_ACCESS_ROLES.includes(req.user.role);
-    if (isStaff && status === TICKET_STATUS.IN_PROGRESS) {
+    const isUnrestricted = UNRESTRICTED_ROLES.includes(req.user.role);
+    if (!isUnrestricted && (status === TICKET_STATUS.IN_PROGRESS || status === TICKET_STATUS.FORWARDED)) {
       filter.assignedDepartment = req.user.subDepartment;
     }
 
     // กรองเพิ่มเติมตาม query params
     if (status) filter.status = status;
-    if (department && !isStaff) {
+    if (department && isUnrestricted) {
       filter.assignedDepartment = department;
     }
     if (search) {
@@ -110,7 +110,7 @@ router.get('/tickets', async (req, res) => {
 // ============================================================
 router.get('/tickets/summary', async (req, res) => {
   try {
-    const isStaff = !FULL_ACCESS_ROLES.includes(req.user.role);
+    const isUnrestricted = UNRESTRICTED_ROLES.includes(req.user.role);
 
     // นับทุกสถานะโดยไม่กรองหน่วยงาน (รอรับเรื่อง/เสร็จสิ้น/ไม่รับเรื่องทุกคนเห็นครบ)
     const summary = await Ticket.aggregate([
@@ -125,11 +125,15 @@ router.get('/tickets/summary', async (req, res) => {
       if (_id in result) result[_id] = count;
     });
 
-    // staff เห็นจำนวน ดำเนินการ เฉพาะหน่วยงานตัวเอง
-    if (isStaff) {
+    // staff/executive เห็นจำนวน "ดำเนินการ" และ "ส่งต่อ" เฉพาะหน่วยงานตัวเอง
+    if (!isUnrestricted) {
       result[TICKET_STATUS.IN_PROGRESS] = await Ticket.countDocuments({
         assignedDepartment: req.user.subDepartment,
         status: TICKET_STATUS.IN_PROGRESS,
+      });
+      result[TICKET_STATUS.FORWARDED] = await Ticket.countDocuments({
+        assignedDepartment: req.user.subDepartment,
+        status: TICKET_STATUS.FORWARDED,
       });
     }
 
@@ -205,11 +209,20 @@ router.patch('/tickets/:id/status', async (req, res) => {
     }
 
     const previousStatus = ticket.status;
+    const previousDepartment = ticket.assignedDepartment;
 
     // อัปเดตสถานะ
     ticket.status = status;
     ticket.assignedToId = req.user.userId;
     ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
+
+    // ถ้ารับเรื่อง (เปลี่ยนเป็นระหว่างดำเนินการ) และหน่วยงานเป็น "ไม่แน่ใจ" 
+    // ให้เปลี่ยนหน่วยงานเป็นหน่วยงานของผู้รับเรื่อง
+    if (status === TICKET_STATUS.IN_PROGRESS && 
+        previousDepartment === 'ไม่แน่ใจ' && 
+        req.user.subDepartment) {
+      ticket.assignedDepartment = req.user.subDepartment;
+    }
 
     // บันทึกรูปผลการดำเนินงาน (เฉพาะสถานะเสร็จสิ้น)
     if (status === TICKET_STATUS.COMPLETED && req.files && req.files.length > 0) {
@@ -217,9 +230,14 @@ router.patch('/tickets/:id/status', async (req, res) => {
     }
 
     // บันทึก history
+    const historyNote = 
+      status === TICKET_STATUS.IN_PROGRESS && previousDepartment === 'ไม่แน่ใจ' && ticket.assignedDepartment !== 'ไม่แน่ใจ'
+        ? `${note ? note + ' | ' : ''}เปลี่ยนหน่วยงานจาก "ไม่แน่ใจ" เป็น "${ticket.assignedDepartment}"`
+        : note || '';
+
     ticket.history.push({
       status,
-      note: note || '',
+      note: historyNote,
       updatedById: req.user.userId,
       updatedByName: `${req.user.firstName} ${req.user.lastName}`,
     });
@@ -239,14 +257,25 @@ router.patch('/tickets/:id/status', async (req, res) => {
     });
 
     // ── Audit Log ──
+    const departmentChanged = previousDepartment === 'ไม่แน่ใจ' && ticket.assignedDepartment !== 'ไม่แน่ใจ';
+    const auditDetail = departmentChanged
+      ? `เปลี่ยนสถานะ "${previousStatus}" → "${status}" และเปลี่ยนหน่วยงานจาก "ไม่แน่ใจ" เป็น "${ticket.assignedDepartment}"${note ? ` (หมายเหตุ: ${note})` : ''}`
+      : `เปลี่ยนสถานะ "${previousStatus}" → "${status}"${note ? ` (หมายเหตุ: ${note})` : ''}`;
+
     logAction({
       ...actorFromUser(req),
       action: 'UPDATE_STATUS',
       category: 'ticket',
       targetId: ticket.ticketNo,
       targetLabel: ticket.subject,
-      detail: `เปลี่ยนสถานะ "${previousStatus}" → "${status}"${note ? ` (หมายเหตุ: ${note})` : ''}`,
-      meta: { ticketId: req.params.id, previousStatus, newStatus: status, note },
+      detail: auditDetail,
+      meta: { 
+        ticketId: req.params.id, 
+        previousStatus, 
+        newStatus: status, 
+        note,
+        ...(departmentChanged ? { previousDepartment, newDepartment: ticket.assignedDepartment } : {})
+      },
     });
   } catch (err) {
     if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
@@ -262,7 +291,7 @@ router.patch('/tickets/:id/status', async (req, res) => {
 // ============================================================
 router.patch(
   '/tickets/:id/forward',
-  requireRole('superadmin', 'admin', 'executive'),
+  requireRole('superadmin', 'admin', 'executive', 'staff'),
   async (req, res) => {
     try {
       const { targetDepartment, note } = req.body;
@@ -275,24 +304,29 @@ router.patch(
       if (!ticket) return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });
 
       const previousDepartment = ticket.assignedDepartment;
+      const forwarderName = `${req.user.firstName} ${req.user.lastName}`;
 
       // เปลี่ยนหน่วยงาน และตั้งสถานะเป็น "ส่งต่อ" เพื่อให้เห็นชัดว่าถูกส่งต่อ
       ticket.assignedDepartment = targetDepartment;
       ticket.status = TICKET_STATUS.FORWARDED;
       ticket.assignedToId = req.user.userId;
-      ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
+      ticket.assignedToName = forwarderName;
 
       ticket.history.push({
         status: TICKET_STATUS.FORWARDED,
-        note: `ส่งต่อจาก ${previousDepartment} ไป ${targetDepartment}${note ? `: ${note}` : ''}`,
+        note: `ส่งต่อจาก ${previousDepartment} ไป ${targetDepartment} โดย ${forwarderName}${note ? ` | หมายเหตุ: ${note}` : ''}`,
         updatedById: req.user.userId,
-        updatedByName: `${req.user.firstName} ${req.user.lastName}`,
+        updatedByName: forwarderName,
       });
 
       await ticket.save();
 
-      // แจ้งเตือนผู้แจ้ง
-      pushStatusUpdate(ticket, `ส่งต่อไปยัง${targetDepartment}`).catch((err) =>
+      // แจ้งเตือนผู้แจ้ง - รวมหมายเหตุถ้ามี
+      const notificationMessage = note 
+        ? `ส่งต่อไปยัง ${targetDepartment}\n📝 หมายเหตุ: ${note}`
+        : `ส่งต่อไปยัง ${targetDepartment}`;
+      
+      pushStatusUpdate(ticket, notificationMessage).catch((err) =>
         console.error('LINE push error:', err.message)
       );
 
@@ -316,6 +350,72 @@ router.patch(
     } catch (err) {
       console.error('forwardTicket error:', err);
       res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งต่อเรื่อง' });
+    }
+  }
+);
+
+// ============================================================
+// GET /api/dashboard/complainant-profiles
+// รายชื่อผู้ร้องพร้อมข้อมูล LINE profile — เฉพาะ superadmin
+// Query: ?search=ชื่อ&page=1&limit=20
+// ============================================================
+router.get(
+  '/complainant-profiles',
+  requireRole('superadmin'),
+  async (req, res) => {
+    try {
+      const { search, page = 1, limit = 20 } = req.query;
+      const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+      const skip = (Number(page) - 1) * safeLimit;
+
+      const escapedSearch = search ? search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+      const matchStage = escapedSearch
+        ? { $match: { $or: [
+            { displayName: { $regex: escapedSearch, $options: 'i' } },
+            { phone:        { $regex: escapedSearch, $options: 'i' } },
+          ] } }
+        : { $match: {} };
+
+      const pipeline = [
+        // group ตาม lineUserId เพื่อดึงข้อมูล profile ล่าสุด
+        {
+          $group: {
+            _id: '$lineUserId',
+            displayName:    { $last: '$displayName' },
+            pictureUrl:     { $last: '$pictureUrl' },
+            statusMessage:  { $last: '$statusMessage' },
+            phone:          { $last: '$phone' },
+            count:          { $sum: 1 },
+            lastTicketAt:   { $max: '$createdAt' },
+            firstTicketAt:  { $min: '$createdAt' },
+          },
+        },
+        matchStage,
+        { $sort: { lastTicketAt: -1 } },
+      ];
+
+      // นับ total
+      const countResult = await Ticket.aggregate([...pipeline, { $count: 'total' }]);
+      const total = countResult[0]?.total ?? 0;
+
+      const profiles = await Ticket.aggregate([
+        ...pipeline,
+        { $skip: skip },
+        { $limit: safeLimit },
+      ]);
+
+      res.json({
+        profiles,
+        pagination: {
+          total,
+          page: Number(page),
+          limit: safeLimit,
+          totalPages: Math.ceil(total / safeLimit),
+        },
+      });
+    } catch (err) {
+      console.error('GET /dashboard/complainant-profiles error:', err.message);
+      res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
     }
   }
 );
