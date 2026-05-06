@@ -1,5 +1,6 @@
 const { messagingApi } = require('@line/bot-sdk');
 const { TICKET_STATUS } = require('../config/constants');
+const Ticket = require('../models/Ticket');
 
 const lineClient = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
@@ -14,12 +15,105 @@ const STATUS_LABEL = {
   [TICKET_STATUS.REJECTED]: '❌ ไม่รับเรื่อง',
 };
 
+const getSystemUrl = () => {
+  const domain = (process.env.DOMAIN || '').replace(/\/$/, '');
+  return domain ? `${domain}/dashboard` : '';
+};
+
+const formatTicketDateTime = (date) => {
+  const ticketDate = date ? new Date(date) : new Date();
+  return {
+    date: ticketDate.toLocaleDateString('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric', month: 'long', day: 'numeric',
+    }),
+    time: ticketDate.toLocaleTimeString('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit', minute: '2-digit',
+    }),
+  };
+};
+
+// ============================================================
+// pushAdminNewTicketAlert — แจ้งเตือนกลุ่ม LINE admin เมื่อมีคำร้องใหม่
+// ============================================================
+const pushAdminNewTicketAlert = async (ticket) => {
+  const adminGroupId = process.env.LINE_ADMIN_ID;
+  if (!adminGroupId || !adminGroupId.startsWith('C')) return;
+
+  const systemUrl = getSystemUrl();
+  const { date, time } = formatTicketDateTime(ticket.createdAt);
+
+  const footerContents = systemUrl
+    ? [{
+        type: 'button',
+        style: 'primary',
+        height: 'sm',
+        color: '#1a5f9e',
+        action: {
+          type: 'uri',
+          label: 'เปิดระบบหลังบ้าน',
+          uri: systemUrl,
+        },
+      }]
+    : [];
+
+  const message = {
+    type: 'flex',
+    altText: `มีคำร้องใหม่ ${ticket.ticketNo}: ${ticket.subject}`,
+    contents: {
+      type: 'bubble',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: '📥 คำร้องใหม่', weight: 'bold', color: '#ffffff', size: 'md' },
+          { type: 'text', text: ticket.ticketNo, color: '#ffffffcc', size: 'xs', margin: 'xs' },
+        ],
+        backgroundColor: '#d97706',
+        paddingAll: '16px',
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          { type: 'text', text: ticket.subject, weight: 'bold', size: 'xl', color: '#111827', wrap: true },
+          { type: 'separator', margin: 'md' },
+          { type: 'box', layout: 'horizontal', margin: 'md', contents: [
+            { type: 'text', text: 'วันที่', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: date, size: 'sm', color: '#111827', flex: 4, wrap: true },
+          ]},
+          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+            { type: 'text', text: 'เวลา', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: `${time} น.`, size: 'sm', color: '#111827', flex: 4, weight: 'bold' },
+          ]},
+          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+            { type: 'text', text: 'หน่วยงาน', size: 'sm', color: '#888888', flex: 2 },
+            { type: 'text', text: ticket.assignedDepartment || '-', size: 'sm', color: '#111827', flex: 4, wrap: true },
+          ]},
+        ],
+      },
+      ...(footerContents.length ? {
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          contents: footerContents,
+          paddingAll: '12px',
+        },
+      } : {}),
+    },
+  };
+
+  await lineClient.pushMessage({ to: adminGroupId, messages: [message] });
+};
+
 /**
  * ส่ง Push Message แจ้งเตือนผู้แจ้งเรื่องเมื่อสถานะอัปเดต
  * @param {object} ticket - Ticket document จาก MongoDB
  * @param {string} note - หมายเหตุจากเจ้าหน้าที่ (optional)
  */
-const pushStatusUpdate = async (ticket, note = '') => {
+const pushStatusUpdate = async (ticket, note = '', options = {}) => {
   if (!ticket.lineUserId) return;
 
   const statusLabel = STATUS_LABEL[ticket.status] || ticket.status;
@@ -76,8 +170,20 @@ const pushStatusUpdate = async (ticket, note = '') => {
     }] : []),
   ];
 
-  // footer: ปุ่มดูรูปแรก (กรณีมีรูปเดียว) หรือลิงก์ตรวจสอบสถานะ
-  const footerContents = completionImages.length === 1
+  const additionalInfoButton = options.additionalInfoUrl
+    ? [{
+        type: 'button', style: 'primary', height: 'sm',
+        color: '#7c3aed',
+        action: {
+          type: 'uri',
+          label: 'กรอกข้อมูลเพิ่มเติม',
+          uri: options.additionalInfoUrl,
+        },
+      }]
+    : [];
+
+  // footer: ปุ่มข้อมูลเพิ่มเติม, ปุ่มดูรูปแรก (กรณีมีรูปเดียว) หรือลิงก์ตรวจสอบสถานะ
+  const imageFooterContents = completionImages.length === 1
     ? [{
         type: 'button', style: 'primary', height: 'sm',
         color: '#1a5f9e',
@@ -96,7 +202,9 @@ const pushStatusUpdate = async (ticket, note = '') => {
           uri: `${domain}/uploads/${img}`,
         },
       }))]
-    : null;
+    : [];
+
+  const footerContents = [...additionalInfoButton, ...imageFooterContents];
 
   const message = {
     type: 'flex',
@@ -118,7 +226,7 @@ const pushStatusUpdate = async (ticket, note = '') => {
         contents: bodyContents,
         paddingAll: '16px',
       },
-      ...(footerContents ? {
+      ...(footerContents.length ? {
         footer: {
           type: 'box',
           layout: 'vertical',
@@ -208,28 +316,18 @@ const pushTicketConfirm = async (ticket, groupId = null) => {
 };
 
 // ============================================================
-// pushGroupEODSummary — สรุปยอด + งานค้าง 17:00 น. (Flex Message)
+// pushGroupEODSummary — สรุปยอดประจำวัน 17:00 น. (Flex Message)
 // ============================================================
 const pushGroupEODSummary = async (groupId) => {
-  const Ticket = require('../models/Ticket');
-  const { TICKET_STATUS } = require('../config/constants');
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
 
-  const [newToday, completedToday, inProgressToday, oldPending, pendingToday, pendingList] = await Promise.all([
+  const [newToday, completedToday, inProgressToday] = await Promise.all([
     Ticket.countDocuments({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
     Ticket.countDocuments({ status: TICKET_STATUS.COMPLETED, updatedAt: { $gte: todayStart } }),
     Ticket.countDocuments({ status: TICKET_STATUS.IN_PROGRESS }),
-    Ticket.countDocuments({ status: TICKET_STATUS.PENDING, createdAt: { $lt: todayStart } }),
-    Ticket.countDocuments({ status: TICKET_STATUS.PENDING, createdAt: { $gte: todayStart } }),
-    Ticket.find(
-      { status: TICKET_STATUS.PENDING },
-      'ticketNo subject assignedDepartment createdAt'
-    ).sort({ createdAt: 1 }).limit(10),
   ]);
-
-  const totalPending = oldPending + pendingToday;
 
   const nowStr = new Date().toLocaleDateString('th-TH', {
     timeZone: 'Asia/Bangkok',
@@ -244,20 +342,9 @@ const pushGroupEODSummary = async (groupId) => {
     ],
   });
 
-  const pendingContents = totalPending === 0
-    ? [{ type: 'text', text: '✅ ไม่มีงานค้างรอรับเรื่อง', size: 'sm', color: '#16a34a' }]
-    : pendingList.map((t, i) => ({
-        type: 'box', layout: 'vertical', margin: 'sm',
-        contents: [
-          { type: 'text', text: `${i + 1}. ${t.ticketNo}`, size: 'xs', weight: 'bold', color: '#1a5f9e' },
-          { type: 'text', text: t.subject, size: 'xs', color: '#374151', wrap: true },
-          { type: 'text', text: `📂 ${t.assignedDepartment} · ${new Date(t.createdAt).toLocaleDateString('th-TH')}`, size: 'xs', color: '#9ca3af' },
-        ],
-      }));
-
   const message = {
     type: 'flex',
-    altText: `📊 สรุปประจำวัน ${nowStr} | งานค้าง ${totalPending} เรื่อง`,
+    altText: `📊 สรุปประจำวัน ${nowStr}`,
     contents: {
       type: 'bubble',
       header: {
@@ -276,15 +363,6 @@ const pushGroupEODSummary = async (groupId) => {
           statRow('📥', 'เรื่องใหม่วันนี้', newToday),
           statRow('✅', 'เสร็จสิ้นวันนี้', completedToday, '#16a34a'),
           statRow('🔧', 'กำลังดำเนินการ', inProgressToday, '#2563eb'),
-          {
-            type: 'text',
-            text: `⚠️ งานค้างรอรับเรื่อง (${totalPending} รายการ)`,
-            weight: 'bold', size: 'sm',
-            color: totalPending > 0 ? '#dc2626' : '#16a34a',
-            margin: 'md',
-          },
-          { type: 'separator', margin: 'sm' },
-          ...pendingContents,
         ],
       },
     },
@@ -293,4 +371,4 @@ const pushGroupEODSummary = async (groupId) => {
   await lineClient.pushMessage({ to: groupId, messages: [message] });
 };
 
-module.exports = { pushStatusUpdate, pushTicketConfirm, pushGroupEODSummary };
+module.exports = { pushStatusUpdate, pushTicketConfirm, pushAdminNewTicketAlert, pushGroupEODSummary };

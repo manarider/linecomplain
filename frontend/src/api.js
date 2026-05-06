@@ -29,6 +29,8 @@ export const updateStatus = (id, body, files = []) => {
     const fd = new FormData();
     fd.append('status', body.status);
     if (body.note) fd.append('note', body.note);
+    if (body.requestAdditionalInfo) fd.append('requestAdditionalInfo', 'true');
+    if (body.additionalInfoRequestText) fd.append('additionalInfoRequestText', body.additionalInfoRequestText);
     files.forEach((f) => fd.append('completionImages', f));
     return fetch(`/api/dashboard/tickets/${id}/status`, {
       method: 'PATCH',
@@ -48,6 +50,8 @@ export const updateStatus = (id, body, files = []) => {
 };
 export const forwardTicket = (id, body) =>
   request(`/api/dashboard/tickets/${id}/forward`, { method: 'PATCH', body: JSON.stringify(body) });
+export const markAdditionalInfoRead = (id) =>
+  request(`/api/dashboard/tickets/${id}/additional-info/read`, { method: 'PATCH' });
 
 // ── LINE Groups ───────────────────────────────────────────
 export const getLineGroups  = ()   => request('/api/line-groups');
@@ -74,5 +78,25 @@ export const getQuotaPushStats = () => request('/api/quota/push-stats');
 // ── Audit Log (superadmin) ────────────────────────────────
 export const getAuditLogs = (params) => request(`/api/audit?${new URLSearchParams(params)}`);
 export const getAuditMeta = ()        => request('/api/audit/meta');
+
+// ── Backup (superadmin) ──────────────────────────────────
+export const downloadDatabaseBackup = async () => {
+  const res = await fetch('/api/backup/download', { credentials: 'include' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.message || 'เกิดข้อผิดพลาด');
+    err.status = res.status;
+    throw err;
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return { blob, filename: match?.[1] || `capp-db-backup-${new Date().toISOString()}.json` };
+};
+
 // ── Statistics (admin/executive/superadmin) ───────────────
 export const getStatistics = (params) => request(`/api/statistics?${new URLSearchParams(params)}`);
+
+// ── Public Statistics (ไม่ต้อง login) ─────────────────────
+export const getPublicFiscalSummary = (params) =>
+  request(`/api/public/fiscal-summary?${new URLSearchParams(params)}`);

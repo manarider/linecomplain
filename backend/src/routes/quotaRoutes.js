@@ -79,7 +79,7 @@ router.get('/push-stats', async (req, res) => {
 
     // 2) ยืนยันรับเรื่อง (กลุ่ม): tickets ที่สร้างในเดือนนี้และมี groupId
     const confirmGroup = await Ticket.countDocuments({
-      groupId: { $exists: true, $ne: null, $ne: '' },
+      groupId: { $exists: true, $nin: [null, ''] },
       createdAt: { $gte: monthStart },
     });
 

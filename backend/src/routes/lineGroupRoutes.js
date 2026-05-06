@@ -5,6 +5,8 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+const requireSuperadmin = requireRole('superadmin');
+
 const lineClient = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
 });
@@ -31,7 +33,7 @@ router.get('/', async (req, res) => {
 // PATCH /api/line-groups/:id/toggle
 // เปิด/ปิดการใช้งานกลุ่ม
 // ============================================================
-router.patch('/:id/toggle', async (req, res) => {
+router.patch('/:id/toggle', requireSuperadmin, async (req, res) => {
   try {
     const group = await LineGroup.findById(req.params.id);
     if (!group) return res.status(404).json({ message: 'ไม่พบกลุ่มนี้' });
@@ -73,7 +75,7 @@ router.patch('/:id/name', async (req, res) => {
 // POST /api/line-groups/sync-name/:id
 // ดึงชื่อกลุ่มล่าสุดจาก LINE API
 // ============================================================
-router.post('/sync-name/:id', async (req, res) => {
+router.post('/sync-name/:id', requireSuperadmin, async (req, res) => {
   try {
     const group = await LineGroup.findById(req.params.id);
     if (!group) return res.status(404).json({ message: 'ไม่พบกลุ่มนี้' });
@@ -93,7 +95,7 @@ router.post('/sync-name/:id', async (req, res) => {
 // DELETE /api/line-groups/:id
 // ลบกลุ่มออกจากระบบ
 // ============================================================
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireSuperadmin, async (req, res) => {
   try {
     await LineGroup.findByIdAndDelete(req.params.id);
     res.json({ message: 'ลบกลุ่มออกจากระบบแล้ว' });

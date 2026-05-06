@@ -8,7 +8,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const Ticket = require('../models/Ticket');
 const { DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
-const { pushTicketConfirm } = require('../utils/lineNotify');
+const { pushTicketConfirm, pushAdminNewTicketAlert } = require('../utils/lineNotify');
 const { logAction, actorFromLiff, getIp } = require('../utils/auditLog');
 
 // ── Rate Limiter: ป้องกัน spam submit ─────────────────────
@@ -27,6 +27,17 @@ const submitLimiter = rateLimit({
   // จำกัดเฉพาะ success responses (ไม่นับ error 400/500)
   skipFailedRequests: true,
   // ปิด validation เพราะเราจัดการ key เอง
+  validate: false,
+});
+
+const additionalInfoLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'ส่งข้อมูลเพิ่มเติมบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่' },
+  keyGenerator: (req) => req.body?.lineUserId || req.ip || 'unknown',
+  skipFailedRequests: true,
   validate: false,
 });
 
@@ -164,6 +175,144 @@ const runUpload = (req, res) =>
     });
   });
 
+const runAdditionalInfoUpload = (req, res) =>
+  new Promise((resolve, reject) => {
+    upload.array('additionalImages', 5)(req, res, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+// ============================================================
+// GET /api/tickets/additional-info/:token
+// ดึงคำขอข้อมูลเพิ่มเติมสำหรับหน้า LIFF
+// ============================================================
+router.get('/additional-info/:token', async (req, res) => {
+  try {
+    const ticket = await Ticket.findOne({ 'additionalInfoRequests.token': req.params.token });
+    if (!ticket) return res.status(404).json({ message: 'ไม่พบคำขอข้อมูลเพิ่มเติมนี้' });
+
+    const infoRequest = ticket.additionalInfoRequests.find((item) => item.token === req.params.token);
+    if (!infoRequest) return res.status(404).json({ message: 'ไม่พบคำขอข้อมูลเพิ่มเติมนี้' });
+
+    res.json({
+      ticketNo: ticket.ticketNo,
+      subject: ticket.subject,
+      requestText: infoRequest.requestText,
+      note: infoRequest.note || '',
+      requestedAt: infoRequest.requestedAt,
+      responded: Boolean(infoRequest.respondedAt),
+    });
+  } catch (err) {
+    console.error('GET /api/tickets/additional-info/:token error:', err.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
+  }
+});
+
+// ============================================================
+// POST /api/tickets/additional-info/:token
+// รับข้อมูลเพิ่มเติมจากผู้ร้องผ่าน LIFF
+// ============================================================
+router.post('/additional-info/:token', additionalInfoLimiter, async (req, res) => {
+  try {
+    await runAdditionalInfoUpload(req, res);
+  } catch (err) {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE')  return res.status(400).json({ message: 'ไฟล์มีขนาดเกิน 500KB' });
+      if (err.code === 'LIMIT_FILE_COUNT') return res.status(400).json({ message: 'อัปโหลดได้สูงสุด 5 รูปเท่านั้น' });
+    }
+    return res.status(400).json({ message: err.message });
+  }
+
+  try {
+    const { lineUserId, displayName, idToken } = req.body;
+    const responseText = typeof req.body.responseText === 'string'
+      ? req.body.responseText.trim().slice(0, 1000)
+      : '';
+
+    if (!lineUserId || !responseText) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(400).json({ message: 'กรุณากรอกข้อมูลเพิ่มเติมให้ครบถ้วน' });
+    }
+    if (!idToken) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(401).json({ message: 'ไม่พบ idToken กรุณาเปิดแอปผ่าน LINE ใหม่' });
+    }
+
+    try {
+      const valid = await verifyLiffIdToken(idToken, lineUserId);
+      if (!valid) {
+        if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+        return res.status(403).json({ message: 'ตรวจสอบตัวตนไม่ผ่าน กรุณาเปิดแอปผ่าน LINE ใหม่' });
+      }
+    } catch (tokenErr) {
+      console.error('LIFF token verify error:', tokenErr.message);
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(503).json({ message: 'ไม่สามารถยืนยันตัวตนได้ชั่วคราว กรุณาลองใหม่' });
+    }
+
+    const ticket = await Ticket.findOne({ 'additionalInfoRequests.token': req.params.token });
+    if (!ticket) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(404).json({ message: 'ไม่พบคำขอข้อมูลเพิ่มเติมนี้' });
+    }
+    if (ticket.lineUserId !== lineUserId) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(403).json({ message: 'ไม่มีสิทธิ์ส่งข้อมูลให้คำร้องนี้' });
+    }
+
+    const infoRequest = ticket.additionalInfoRequests.find((item) => item.token === req.params.token);
+    if (!infoRequest) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(404).json({ message: 'ไม่พบคำขอข้อมูลเพิ่มเติมนี้' });
+    }
+
+    // ป้องกันการส่งข้อมูลซ้ำหลังจากตอบแล้ว
+    if (infoRequest.respondedAt) {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(409).json({ message: 'ได้ส่งข้อมูลเพิ่มเติมนี้ไปแล้ว ไม่สามารถแก้ไขได้' });
+    }
+
+    infoRequest.responseText = responseText;
+    infoRequest.responseImages = req.files ? req.files.map((f) => f.filename) : [];
+    infoRequest.respondedAt = new Date();
+    infoRequest.isRead = false;
+    infoRequest.readById = '';
+    infoRequest.readByName = '';
+    infoRequest.readAt = null;
+
+    ticket.history.push({
+      status: ticket.status,
+      note: `ผู้ร้องส่งข้อมูลเพิ่มเติม: ${responseText}`,
+      updatedById: lineUserId,
+      updatedByName: displayName || 'ผู้ใช้ LINE',
+    });
+
+    await ticket.save();
+
+    logAction({
+      ...actorFromLiff(lineUserId, displayName),
+      action: 'SUBMIT_ADDITIONAL_INFO',
+      category: 'ticket',
+      targetId: ticket.ticketNo,
+      targetLabel: ticket.subject,
+      detail: `ส่งข้อมูลเพิ่มเติมให้คำร้อง ${ticket.ticketNo}`,
+      meta: {
+        ticketId: ticket._id,
+        imageCount: infoRequest.responseImages.length,
+      },
+      ip: getIp(req),
+      userAgent: req.headers['user-agent'] || '',
+    });
+
+    res.json({ message: 'ระบบได้รับข้อมูลเพิ่มเติมแล้ว', ticketNo: ticket.ticketNo });
+  } catch (error) {
+    if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+    console.error('POST /api/tickets/additional-info error:', error.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งข้อมูลเพิ่มเติม' });
+  }
+});
+
 // ============================================================
 // POST /api/tickets
 // รับฟอร์มแจ้งเรื่องจาก LIFF พร้อมอัปโหลดรูปภาพ
@@ -244,6 +393,11 @@ router.post('/', submitLimiter, async (req, res) => {
     // ── Push แจ้งยืนยัน LINE (ไม่ blocking) ────────────────
     pushTicketConfirm(ticket, groupId || null).catch((err) =>
       console.error('LINE confirm push error:', err.message)
+    );
+
+    // ── Push แจ้งเตือนกลุ่ม LINE admin (ไม่ blocking) ─────
+    pushAdminNewTicketAlert(ticket).catch((err) =>
+      console.error('LINE admin alert push error:', err.message)
     );
 
     // ── Audit Log ──

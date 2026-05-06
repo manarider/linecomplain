@@ -260,6 +260,17 @@
     .alert.show { display: block; }
     .alert-error { background: #fff5f5; border: 1px solid #feb2b2; color: #c53030; }
 
+    .request-box {
+      background: #f5f3ff;
+      border: 1px solid #ddd6fe;
+      border-radius: 8px;
+      padding: 12px;
+      color: #3b0764;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
     /* Char counter */
     .char-count { font-size: 0.75rem; color: #999; text-align: right; margin-top: 3px; }
   </style>
@@ -279,8 +290,8 @@
 <!-- Header -->
 <div class="header">
   <div>
-    <h1>📋 แจ้งเรื่องร้องทุกข์</h1>
-    <p>กรอกข้อมูลให้ครบถ้วนเพื่อให้เจ้าหน้าที่ดำเนินการได้รวดเร็ว</p>
+    <h1 id="pageTitle">📋 แจ้งเรื่องร้องทุกข์</h1>
+    <p id="pageSubtitle">กรอกข้อมูลให้ครบถ้วนเพื่อให้เจ้าหน้าที่ดำเนินการได้รวดเร็ว</p>
   </div>
 </div>
 
@@ -303,8 +314,20 @@
     <!-- Alert Error -->
     <div class="alert alert-error" id="alertError"></div>
 
-    <div class="card">
-      <div class="form-group">
+    <div class="card" id="additionalInfoRequestCard" style="display:none;">
+      <div class="form-group" id="additionalNoteGroup" style="display:none;">
+        <label>หมายเหตุจากเจ้าหน้าที่</label>
+        <div class="request-box" id="additionalInfoRequestText"></div>
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label>ข้อมูลเพิ่มเติมของท่าน <span class="required">*</span></label>
+        <textarea id="additionalResponseText" maxlength="1000" placeholder="กรอกข้อมูลเพิ่มเติมตามที่เจ้าหน้าที่ขอ..." rows="5"></textarea>
+        <div class="char-count"><span id="additionalResponseCount">0</span>/1000</div>
+      </div>
+    </div>
+
+    <div class="card" id="subjectCard">
+      <div class="form-group" id="subjectFormGroup">
         <label>หัวข้อเรื่อง <span class="required">*</span></label>
         <input type="text" id="subject" maxlength="100" placeholder="ระบุหัวข้อเรื่องโดยย่อ" required />
         <div class="char-count"><span id="subjectCount">0</span>/100</div>
@@ -317,7 +340,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="departmentPhoneCard">
       <div class="form-group">
         <label>หน่วยงานที่เกี่ยวข้อง <span style="color:#999;font-weight:400;">(ไม่แน่ใจไม่ต้องเลือกครับ)</span></label>
         <select id="assignedDepartment">
@@ -342,7 +365,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="locationCard">
       <div class="form-group">
         <label>ตำแหน่งที่เกิดเหตุ <span style="color:#999;font-weight:400;">(ไม่บังคับ)</span></label>
         <button type="button" class="btn-map" id="pinMapBtn">📍 ปักหมุดตำแหน่ง</button>
@@ -356,7 +379,7 @@
 
     <div class="card">
       <div class="form-group">
-        <label>รูปภาพประกอบ <span style="color:#999;font-weight:400;">(ไม่บังคับ สูงสุด 5 รูป ลดขนาดอัตโนมัติ)</span></label>
+        <label id="imageLabel">รูปภาพประกอบ <span style="color:#999;font-weight:400;">(ไม่บังคับ สูงสุด 5 รูป ลดขนาดอัตโนมัติ)</span></label>
         <div class="photo-btns">
           <label class="btn-photo">
             📷 ถ่ายรูป
@@ -382,6 +405,8 @@
   let lineProfile = null;
   let liffIdToken  = null;  // ID Token สำหรับยืนยันตัวตนฝั่ง server
   let selectedFiles = [];
+  const urlParams = new URLSearchParams(window.location.search);
+  const additionalInfoToken = urlParams.get('additional') || urlParams.get('ai') || '';
 
   // ── เริ่มต้น LIFF ─────────────────────────────────────────
   const LIFF_ID  = '%%LIFF_ID%%';  // inject โดย server.js
@@ -403,8 +428,12 @@
         return;
       }
 
+      if (additionalInfoToken) {
+        await setupAdditionalInfoMode(additionalInfoToken);
+        return;
+      }
+
       // รับ groupId จาก query string ?gid=Cxxx ที่ฝังมาจาก webhook
-      const urlParams = new URLSearchParams(window.location.search);
       const gid = urlParams.get('gid');
       if (gid && gid.startsWith('C')) {
         document.getElementById('groupId').value = gid;
@@ -414,6 +443,47 @@
       console.error('LIFF init error:', err);
       showError('LIFF Error: ' + (err.code || '') + ' ' + (err.message || String(err)));
     });
+
+  async function setupAdditionalInfoMode(token) {
+    document.title = 'ส่งข้อมูลเพิ่มเติม';
+    document.getElementById('pageTitle').textContent = '📝 ส่งข้อมูลเพิ่มเติม';
+    document.getElementById('pageSubtitle').textContent = 'กรอกข้อมูลเพิ่มเติมตามที่เจ้าหน้าที่ร้องขอ';
+    document.getElementById('subjectFormGroup').style.display = 'none';
+    document.getElementById('departmentPhoneCard').style.display = 'none';
+    document.getElementById('locationCard').style.display = 'none';
+    document.getElementById('subjectCard').style.display = 'none';
+    document.getElementById('additionalInfoRequestCard').style.display = 'block';
+    document.getElementById('submitBtn').textContent = '📨 ส่งข้อมูลเพิ่มเติม';
+    document.getElementById('imageLabel').innerHTML = 'รูปภาพเพิ่มเติม <span style="color:#999;font-weight:400;">(ไม่บังคับ สูงสุด 5 รูป ลดขนาดอัตโนมัติ)</span>';
+
+    document.getElementById('subject').removeAttribute('required');
+    document.getElementById('phone').removeAttribute('required');
+    document.getElementById('description').removeAttribute('required');
+
+    document.getElementById('additionalResponseText').addEventListener('input', function () {
+      document.getElementById('additionalResponseCount').textContent = this.value.length;
+    });
+
+    try {
+      const res = await fetch(API_BASE + '/api/tickets/additional-info/' + encodeURIComponent(token));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'ไม่พบคำขอข้อมูลเพิ่มเติม');
+      // แสดงหมายเหตุจากเจ้าหน้าที่ (ถ้ามี)
+      if (data.note) {
+        document.getElementById('additionalInfoRequestText').textContent = data.note;
+        document.getElementById('additionalNoteGroup').style.display = 'block';
+      }
+      document.getElementById('additionalResponseText').value = '';
+      document.getElementById('additionalResponseCount').textContent = '0';
+      if (data.responded) {
+        showError('คำขอนี้เคยมีการส่งข้อมูลแล้ว');
+        document.getElementById('submitBtn').disabled = true;
+      }
+    } catch (err) {
+      showError(err.message || 'ไม่สามารถโหลดคำขอข้อมูลเพิ่มเติมได้');
+      document.getElementById('submitBtn').disabled = true;
+    }
+  }
 
   // ── Character Counter ──────────────────────────────────────
   document.getElementById('subject').addEventListener('input', function () {
@@ -665,6 +735,48 @@
     const description = document.getElementById('description').value.trim();
     const phone = document.getElementById('phone').value.trim();
     const assignedDepartment = document.getElementById('assignedDepartment').value;
+
+    if (additionalInfoToken) {
+      const additionalResponse = document.getElementById('additionalResponseText').value.trim();
+      if (!additionalResponse) {
+        showError('กรุณากรอกข้อมูลเพิ่มเติม');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('lineUserId', lineProfile.userId);
+      formData.append('displayName', lineProfile.displayName || '');
+      formData.append('idToken', liffIdToken);
+      formData.append('responseText', additionalResponse);
+      selectedFiles.forEach((item) => formData.append('additionalImages', item.file));
+
+      clearError();
+      showLoading(true, 'กำลังส่งข้อมูลเพิ่มเติม...');
+      document.getElementById('submitBtn').disabled = true;
+
+      try {
+        const res = await fetch(API_BASE + '/api/tickets/additional-info/' + encodeURIComponent(additionalInfoToken), {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || `เกิดข้อผิดพลาด (${res.status})`);
+
+        showLoading(false);
+        document.getElementById('complaintForm').style.display = 'none';
+        document.getElementById('ticketNoDisplay').textContent = data.ticketNo || '-';
+        document.querySelector('#successScreen h2').textContent = 'ได้รับข้อมูลเพิ่มเติมแล้ว';
+        const successParagraphs = document.querySelectorAll('#successScreen p');
+        if (successParagraphs[0]) successParagraphs[0].textContent = 'ระบบได้รับข้อมูลเพิ่มเติมสำหรับคำร้องเลขที่';
+        if (successParagraphs[1]) successParagraphs[1].textContent = 'เจ้าหน้าที่จะตรวจสอบข้อมูลเพิ่มเติมที่ส่งเข้ามาครับ';
+        document.getElementById('successScreen').classList.add('show');
+      } catch (err) {
+        showLoading(false);
+        document.getElementById('submitBtn').disabled = false;
+        showError(err.message || 'เกิดข้อผิดพลาดในการส่งข้อมูลเพิ่มเติม กรุณาลองใหม่');
+      }
+      return;
+    }
 
     if (!subject || !description || !phone) {
       showError('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');

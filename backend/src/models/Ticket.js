@@ -29,6 +29,25 @@ const ticketSchema = new mongoose.Schema(
     // ── รูปยืนยันผลการดำเนินงาน (แนบตอนเปลี่ยนสถานะเสร็จสิ้น) ──
     completionImages: [{ type: String }],
 
+    // ── ข้อมูลเพิ่มเติมจากผู้ร้อง (ขอโดยเจ้าหน้าที่ผ่าน LIFF) ──
+    additionalInfoRequests: [
+      {
+        requestText: { type: String, default: '', trim: true },
+        note: { type: String, default: '', trim: true },
+        token: { type: String, required: true }, // index ประกาศไว้ด้านล่างแล้ว
+        requestedById: { type: String, default: '' },
+        requestedByName: { type: String, default: '' },
+        requestedAt: { type: Date, default: Date.now },
+        responseText: { type: String, default: '', trim: true },
+        responseImages: [{ type: String }],
+        respondedAt: { type: Date, default: null },
+        isRead: { type: Boolean, default: true },
+        readById: { type: String, default: '' },
+        readByName: { type: String, default: '' },
+        readAt: { type: Date, default: null },
+      },
+    ],
+
     // ── การกำหนดหน่วยงาน ──────────────────────────────────
     // ใช้ match กับ subDepartment ของเจ้าหน้าที่จาก UMS
     assignedDepartment: {
@@ -88,5 +107,7 @@ ticketSchema.pre('save', async function () {
 ticketSchema.index({ status: 1 });
 ticketSchema.index({ status: 1, assignedDepartment: 1 });
 ticketSchema.index({ createdAt: -1 });
+ticketSchema.index({ 'additionalInfoRequests.token': 1 });
+ticketSchema.index({ 'additionalInfoRequests.isRead': 1, 'additionalInfoRequests.respondedAt': 1 });
 
 module.exports = mongoose.model('Ticket', ticketSchema);

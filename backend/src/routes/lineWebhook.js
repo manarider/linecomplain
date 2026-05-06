@@ -1,6 +1,8 @@
 const express = require('express');
 const { middleware, messagingApi } = require('@line/bot-sdk');
 const LineGroup = require('../models/LineGroup');
+const Ticket = require('../models/Ticket');
+const { TICKET_STATUS } = require('../config/constants');
 
 const router = express.Router();
 
@@ -177,9 +179,9 @@ const handleEvent = async (event) => {
     const text = event.message.text.trim();
     const replyToken = event.replyToken;
 
-    // ── คำสั่ง "แจ้งเรื่อง" ────────────────────────────────
+    // ── คำสั่ง "แจ้งเรื่อง" / "ร้องเรียน" ────────────────────
     // ฝัง groupId ใน LIFF URL ผ่าน query string เพื่อให้ ticketRoutes รับได้
-    if (text === 'แจ้งเรื่อง') {
+    if (text === 'แจ้งเรื่อง' || text === 'ร้องเรียน') {
       const gid = event.source.groupId || '';
       const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}${gid ? '?gid=' + gid : ''}`;
       const flexMsg = createComplainFlexMessage(liffUrl);
@@ -195,8 +197,6 @@ const handleEvent = async (event) => {
 
     // ── คำสั่ง "ตามเรื่อง" ───────────────────────────────
     if (text === 'ตามเรื่อง') {
-      const Ticket = require('../models/Ticket');
-      const { TICKET_STATUS } = require('../config/constants');
       const userId = event.source.userId;
 
       console.log(`[ตามเรื่อง] userId=${userId}`);
@@ -320,7 +320,6 @@ const handleEvent = async (event) => {
       const ticketNo = text.toUpperCase();
 
       // เรียกข้อมูลจาก API ภายใน
-      const Ticket = require('../models/Ticket');
       const ticket = await Ticket.findOne(
         { ticketNo },
         'ticketNo subject status assignedDepartment createdAt'
@@ -352,7 +351,7 @@ const handleEvent = async (event) => {
     }
 
     // ── ข้อความอื่นๆ ไม่ตอบสนอง ──────────────────────────
-    // (ตอบเฉพาะคำว่า "ร้องเรียน", "ตามเรื่อง" และเลขที่คำร้อง RPT-XXXX-XXXX เท่านั้น)
+    // (ตอบเฉพาะคำว่า "แจ้งเรื่อง"/"ร้องเรียน", "ตามเรื่อง" และเลขที่คำร้อง RPT-XXXX-XXXX เท่านั้น)
   } catch (err) {
     // LINE Bot SDK v11 ใช้ err.body (string) สำหรับ HTTP error
     console.error('LINE event handler error:', err.message, err.body || '');

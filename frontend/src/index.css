@@ -28,6 +28,14 @@ body {
   color: #d97706;
 }
 
+@keyframes blink-additional-info {
+  0%, 100% { background: #faf5ff; }
+  50%      { background: #e9d5ff; }
+}
+.ticket-row-additional-unread td {
+  animation: blink-additional-info 1.2s ease-in-out infinite;
+}
+
 /* ── Status Badges ─────────────────────────────────────── */
 .status-badge {
   display: inline-block;

@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const Ticket = require('../models/Ticket');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { pushStatusUpdate } = require('../utils/lineNotify');
@@ -188,13 +189,16 @@ router.patch('/tickets/:id/status', async (req, res) => {
     const note = typeof req.body.note === 'string'
       ? req.body.note.slice(0, 500)   // จำกัดความยาว note ไม่เกิน 500 ตัวอักษร
       : '';
+    const requestAdditionalInfo = req.body.requestAdditionalInfo === true || req.body.requestAdditionalInfo === 'true';
+    const additionalInfoRequestText = typeof req.body.additionalInfoRequestText === 'string'
+      ? req.body.additionalInfoRequestText.trim().slice(0, 1000)
+      : '';
 
     // ตรวจสอบว่า status ที่ส่งมาถูกต้อง
     if (!Object.values(TICKET_STATUS).includes(status)) {
       if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
       return res.status(400).json({ message: 'สถานะไม่ถูกต้อง' });
     }
-
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
       if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
@@ -242,10 +246,31 @@ router.patch('/tickets/:id/status', async (req, res) => {
       updatedByName: `${req.user.firstName} ${req.user.lastName}`,
     });
 
+    let additionalInfoUrl = '';
+    if (requestAdditionalInfo) {
+      const token = crypto.randomBytes(24).toString('hex');
+      ticket.additionalInfoRequests.push({
+        requestText: additionalInfoRequestText,
+        note,
+        token,
+        requestedById: req.user.userId,
+        requestedByName: `${req.user.firstName} ${req.user.lastName}`,
+        isRead: true,
+      });
+      const domain = (process.env.DOMAIN || '').replace(/\/$/, '');
+      additionalInfoUrl = `${domain}/liff?additional=${token}`;
+      ticket.history.push({
+        status,
+        note: `ขอข้อมูลเพิ่มเติม: ${additionalInfoRequestText}`,
+        updatedById: req.user.userId,
+        updatedByName: `${req.user.firstName} ${req.user.lastName}`,
+      });
+    }
+
     await ticket.save();
 
     // ส่ง push notification ให้ผู้แจ้ง (ไม่ blocking)
-    pushStatusUpdate(ticket, note).catch((err) =>
+    pushStatusUpdate(ticket, note, { additionalInfoUrl }).catch((err) =>
       console.error('LINE push error:', err.message)
     );
 
@@ -274,13 +299,68 @@ router.patch('/tickets/:id/status', async (req, res) => {
         previousStatus, 
         newStatus: status, 
         note,
+        requestAdditionalInfo,
+        ...(requestAdditionalInfo ? { additionalInfoRequestText } : {}),
         ...(departmentChanged ? { previousDepartment, newDepartment: ticket.assignedDepartment } : {})
       },
     });
+
+    if (requestAdditionalInfo) {
+      logAction({
+        ...actorFromUser(req),
+        action: 'REQUEST_ADDITIONAL_INFO',
+        category: 'ticket',
+        targetId: ticket.ticketNo,
+        targetLabel: ticket.subject,
+        detail: `ขอข้อมูลเพิ่มเติม: ${additionalInfoRequestText}`,
+        meta: { ticketId: req.params.id, status, note },
+      });
+    }
   } catch (err) {
     if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
     console.error('updateStatus error:', err);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' });
+  }
+});
+
+// ============================================================
+// PATCH /api/dashboard/tickets/:id/additional-info/read
+// ทำเครื่องหมายว่าข้อมูลเพิ่มเติมที่ผู้ร้องส่งกลับมา เจ้าหน้าที่เปิดดูแล้ว
+// ============================================================
+router.patch('/tickets/:id/additional-info/read', async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });
+
+    const readerName = `${req.user.firstName} ${req.user.lastName}`;
+    let changed = false;
+    ticket.additionalInfoRequests.forEach((item) => {
+      if (item.respondedAt && !item.isRead) {
+        item.isRead = true;
+        item.readById = req.user.userId;
+        item.readByName = readerName;
+        item.readAt = new Date();
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      await ticket.save();
+      logAction({
+        ...actorFromUser(req),
+        action: 'READ_ADDITIONAL_INFO',
+        category: 'ticket',
+        targetId: ticket.ticketNo,
+        targetLabel: ticket.subject,
+        detail: 'เปิดดูข้อมูลเพิ่มเติมจากผู้ร้อง',
+        meta: { ticketId: req.params.id },
+      });
+    }
+
+    res.json({ message: 'บันทึกสถานะอ่านแล้ว', changed });
+  } catch (err) {
+    console.error('mark additional info read error:', err.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึกสถานะอ่านแล้ว' });
   }
 });
 
@@ -296,7 +376,7 @@ router.patch(
     try {
       const { targetDepartment, note } = req.body;
 
-      if (!DEPARTMENTS.includes(targetDepartment) && targetDepartment !== 'ไม่แน่ใจ') {
+      if (!DEPARTMENTS.includes(targetDepartment) || targetDepartment === 'ไม่แน่ใจ') {
         return res.status(400).json({ message: 'หน่วยงานปลายทางไม่ถูกต้อง' });
       }
 
@@ -356,12 +436,12 @@ router.patch(
 
 // ============================================================
 // GET /api/dashboard/complainant-profiles
-// รายชื่อผู้ร้องพร้อมข้อมูล LINE profile — เฉพาะ superadmin
+// รายชื่อผู้ร้องพร้อมข้อมูล LINE profile — เฉพาะ superadmin/admin
 // Query: ?search=ชื่อ&page=1&limit=20
 // ============================================================
 router.get(
   '/complainant-profiles',
-  requireRole('superadmin'),
+  requireRole('superadmin', 'admin'),
   async (req, res) => {
     try {
       const { search, page = 1, limit = 20 } = req.query;
@@ -422,12 +502,12 @@ router.get(
 
 // ============================================================
 // GET /api/dashboard/complainants
-// สถิติผู้ร้อง — เฉพาะ superadmin
+// สถิติผู้ร้อง — เฉพาะ superadmin/admin
 // Query: ?year=2568  (พุทธศักราช)
 // ============================================================
 router.get(
   '/complainants',
-  requireRole('superadmin'),
+  requireRole('superadmin', 'admin'),
   async (req, res) => {
     try {
       const { year } = req.query; // พุทธศักราช เช่น 2568
@@ -472,12 +552,12 @@ router.get(
 
 // ============================================================
 // GET /api/dashboard/complainants/:lineUserId/tickets
-// รายการคำร้องของผู้ร้องรายคน — เฉพาะ superadmin
+// รายการคำร้องของผู้ร้องรายคน — เฉพาะ superadmin/admin
 // Query: ?year=2568  (พุทธศักราช)
 // ============================================================
 router.get(
   '/complainants/:lineUserId/tickets',
-  requireRole('superadmin'),
+  requireRole('superadmin', 'admin'),
   async (req, res) => {
     try {
       const { lineUserId } = req.params;

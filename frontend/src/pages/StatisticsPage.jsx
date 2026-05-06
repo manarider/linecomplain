@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getStatistics } from '../api';
 import * as XLSX from 'xlsx';
 
@@ -13,11 +13,7 @@ export default function StatisticsPage() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [fiscalYear, setFiscalYear] = useState(new Date().getFullYear());
 
-  useEffect(() => {
-    fetchData();
-  }, [year, fiscalYear]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getStatistics({ year, fiscalYear });
@@ -27,7 +23,11 @@ export default function StatisticsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [year, fiscalYear]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const exportToExcel = () => {
     if (!data) return;

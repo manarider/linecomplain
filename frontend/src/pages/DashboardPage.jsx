@@ -9,6 +9,7 @@ import QuotaPage from './QuotaPage';
 import AuditLogPage from './AuditLogPage';
 import StatisticsPage from './StatisticsPage';
 import LineUsersPage from './LineUsersPage';
+import BackupPage from './BackupPage';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -20,7 +21,8 @@ export default function DashboardPage() {
   const [pagination, setPagination] = useState({});
   const [filterStatus, setFilterStatus] = useState('รอรับเรื่อง');
   const [filterDept, setFilterDept]     = useState('');
-  const [search, setSearch]             = useState('');
+  const [searchInput, setSearchInput]   = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [page, setPage]           = useState(1);
   const [loading, setLoading]     = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -36,10 +38,10 @@ export default function DashboardPage() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const showToast = (msg, type = '') => {
+  const showToast = useCallback((msg, type = '') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
-  };
+  }, []);
 
   // ── โหลด User ─────────────────────────────────────────────
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function DashboardPage() {
     try {
       const params = { page: p, limit: 20 };
       if (filterStatus) params.status = filterStatus;
-      if (search)       params.search = search;
+      if (appliedSearch) params.search = appliedSearch;
       if (filterDept && FULL_ACCESS_ROLES.includes(user.role)) params.department = filterDept;
 
       const [sumData, tickData] = await Promise.all([getSummary(), getTickets(params)]);
@@ -75,14 +77,19 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, filterStatus, filterDept, search]);
+  }, [user, filterStatus, filterDept, appliedSearch, showToast]);
 
   useEffect(() => {
     setPage(1);
     fetchData(1);
-  }, [user, filterStatus, filterDept]);
+  }, [fetchData]);
 
-  const handleSearch = () => { setPage(1); fetchData(1); };
+  const handleSearch = () => {
+    const nextSearch = searchInput.trim();
+    setPage(1);
+    if (nextSearch === appliedSearch) fetchData(1);
+    else setAppliedSearch(nextSearch);
+  };
 
   const goPage = (p) => { setPage(p); fetchData(p); };
 
@@ -134,6 +141,7 @@ export default function DashboardPage() {
           <div>
             <div style={{ fontWeight: 800, fontSize: '1rem' }}>CAPP</div>
             <div style={{ fontSize: '0.7rem', opacity: 0.75, marginTop: 2 }}>ระบบรับแจ้งเรื่อง</div>
+            <div style={{ fontSize: '0.65rem', opacity: 0.6, marginTop: 1 }}>เทศบาลนครนครสวรรค์</div>
           </div>
         </div>
 
@@ -166,7 +174,7 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('line-groups'); setSidebarOpen(false); }}
             >💬 จัดการกลุ่ม LINE</div>
           )}
-          {user && user.role === 'superadmin' && (
+          {user && (user.role === 'superadmin' || user.role === 'admin') && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'complainants' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('complainants'); setSidebarOpen(false); }}
@@ -194,6 +202,12 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('audit'); setSidebarOpen(false); }}
             >🗂️ Audit Log</div>
           )}
+          {user && user.role === 'superadmin' && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'backup' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('backup'); setSidebarOpen(false); }}
+            >💾 Backup</div>
+          )}
         </nav>
 
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
@@ -218,7 +232,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -236,7 +250,7 @@ export default function DashboardPage() {
             <StatisticsPage showToast={showToast} />
           )}
           {activeMenu === 'line-groups' && (
-            <LineGroupsPage showToast={showToast} />
+            <LineGroupsPage showToast={showToast} user={user} />
           )}
           {activeMenu === 'complainants' && (
             <ComplainantsPage showToast={showToast} />
@@ -246,6 +260,9 @@ export default function DashboardPage() {
           )}
           {activeMenu === 'audit' && (
             <AuditLogPage showToast={showToast} />
+          )}
+          {activeMenu === 'backup' && (
+            <BackupPage showToast={showToast} />
           )}
           {activeMenu === 'line-users' && (
             <LineUsersPage showToast={showToast} />
@@ -284,8 +301,8 @@ export default function DashboardPage() {
             <input
               style={S.filterInput}
               placeholder="🔍 ค้นหาเลขที่คำร้อง, หัวข้อ, ชื่อ..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
             />
             {isFullAccess && (
@@ -318,12 +335,14 @@ export default function DashboardPage() {
                   const b = STATUS_BADGE[t.status];
                   const isOverdue = t.status === 'รอรับเรื่อง' &&
                     (Date.now() - new Date(t.createdAt).getTime()) > 24 * 60 * 60 * 1000;
+                  const hasUnreadAdditionalInfo = t.additionalInfoRequests?.some((item) => item.respondedAt && !item.isRead);
                   return (
-                    <tr key={t._id} style={S.tableRow} onClick={() => setSelectedId(t._id)}>
+                    <tr key={t._id} className={hasUnreadAdditionalInfo ? 'ticket-row-additional-unread' : ''} style={S.tableRow} onClick={() => setSelectedId(t._id)}>
                       <td style={S.td}>
                         <strong className={isOverdue ? 'ticket-no-overdue' : ''}>
                           {t.ticketNo}
                         </strong>
+                        {hasUnreadAdditionalInfo && <span style={S.additionalInfoBadge}>ข้อมูลใหม่</span>}
                       </td>
                       <td style={S.td}>{t.subject}</td>
                       <td style={{ ...S.td, fontSize: '0.8rem', display: window.innerWidth < 768 ? 'none' : undefined }}>{t.assignedDepartment}</td>
@@ -446,6 +465,11 @@ const S = {
     borderRadius: '50%', width: 18, height: 18,
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '0.7rem', fontWeight: 800, flexShrink: 0,
+  },
+  additionalInfoBadge: {
+    display: 'inline-block', marginLeft: 8, padding: '2px 7px',
+    borderRadius: 999, background: '#7c3aed', color: '#fff',
+    fontSize: '0.68rem', fontWeight: 800, verticalAlign: 'middle',
   },
   btnLogout: {
     padding: '6px 14px', background: 'rgba(220,38,38,0.85)',

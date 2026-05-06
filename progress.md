@@ -1,5 +1,5 @@
 # 📋 แผนการพัฒนาระบบรับเรื่องร้องทุกข์ (CAPP — Complaint Application)
-> อัปเดตล่าสุด: 28 เมษายน 2569
+> อัปเดตล่าสุด: 6 พฤษภาคม 2569
 
 ---
 
@@ -28,6 +28,7 @@
   - ตรวจสอบ `liff.getFriendship()` ก่อนส่ง
   - ฝัง `groupId` ผ่าน query string `?gid=` จาก webhook
 - [x] `POST /api/tickets` — บันทึก ticket + push Flex Message ยืนยันทั้งแชทส่วนตัวและกลุ่ม
+- [x] Push Flex Message แจ้งเตือนกลุ่ม LINE admin (`LINE_ADMIN_ID`) เมื่อมีคำร้องใหม่ พร้อมหัวข้อคำร้อง วันที่ เวลา และปุ่มเปิดระบบหลังบ้าน
 - [x] `GET /api/tickets/status/:ticketNo` — ตรวจสถานะแบบ public (LINE Bot ใช้)
 - [x] `ticketNo` auto-generate `RPT-YYMM-XXXX` atomic ผ่าน Counter model
 - [x] `POST /api/tickets/preview-heic` — รับ HEIC → แปลง JPEG (heic-convert) → resize 1280px (sharp) → thumbnail → คืน base64
@@ -43,28 +44,45 @@
   - ใช้ `UNRESTRICTED_ROLES` (superadmin, admin) และ `FULL_ACCESS_ROLES` (รวม executive, staff)
 - [x] **Auto-assign Department:** เมื่อรับเรื่อง (เปลี่ยนเป็น "ระหว่างดำเนินการ") หากหน่วยงานเป็น "ไม่แน่ใจ" จะเปลี่ยนเป็นหน่วยงานของผู้รับเรื่องอัตโนมัติ + บันทึก history
 - [x] `PATCH /api/dashboard/tickets/:id/status` — อัปเดตสถานะ + push LINE แจ้งผู้แจ้ง
+- [x] ขอข้อมูลเพิ่มเติมจากผู้ร้องในส่วนดำเนินการ (ไม่รวมส่งต่อ)
+  - เช็กบ๊อกซ์ "ขอข้อมูลเพิ่มเติมจากผู้ร้อง" ไม่มีกล่องข้อความในการ์ดคำร้อง (เจ้าหน้าที่กดบันทึกสถานะพร้อมหมายเหตุได้เลย)
+  - LINE แจ้งเตือนสถานะยังทำงานเดิม และเพิ่มปุ่ม "กรอกข้อมูลเพิ่มเติม" เฉพาะกรณีที่ขอข้อมูล
+  - LIFF โหมด `?additional=` แสดงหมายเหตุจากเจ้าหน้าที่ (ถ้ามี) + กล่องกรอกข้อมูลบังคับ + แนบรูปได้สูงสุด 5 รูป
+  - ข้อมูลเพิ่มเติมแสดงใต้รายละเอียดคำร้อง และรูปเพิ่มเติมแสดงใต้รูปภาพประกอบเดิม
+  - คำร้องที่มีข้อมูลเพิ่มเติมใหม่และเจ้าหน้าที่ยังไม่เปิดดู กระพริบสีม่วงในหน้ารายการ
+  - ป้องกันการส่งข้อมูลเพิ่มเติมซ้ำ (409 Conflict)
 - [x] `PATCH /api/dashboard/tickets/:id/forward` — ส่งต่อ (staff+ ได้) + เปลี่ยนหน่วยงาน + บันทึกผู้ส่งใน history + push LINE
 - [x] TicketModal: รูปภาพ, history, ฟอร์มอัปเดต/ส่งต่อ — ซ่อนส่วนดำเนินการเมื่อสถานะ "เสร็จสิ้น" แล้ว
 - [x] Dashboard responsive: Sidebar slide drawer บนมือถือ, ปุ่ม logout มุมขวาบน, แสดงชื่อหน่วยงานใต้หัวข้อ
+- [x] เมนู "👥 สถิติผู้ร้อง" เปิดให้ superadmin/admin ใช้งาน พร้อม API `/api/dashboard/complainants*`
 
 ## ✅ Phase 5: LINE Group Management (ระบบจัดการกลุ่ม LINE)
 - [x] `LineGroup` model — เก็บ groupId, groupName, isActive, addedAt, leftAt
 - [x] Webhook `join` event — บันทึกกลุ่มเข้า DB + ทักทายในกลุ่ม
 - [x] Webhook `leave` event — อัปเดต `isActive: false, leftAt`
-- [x] `GET/PATCH/POST/DELETE /api/line-groups` — API จัดการกลุ่ม (admin+ เท่านั้น)
-  - toggle เปิด/ปิดกลุ่ม, แก้ชื่อ, sync ชื่อจาก LINE API, ลบ
+- [x] `GET/PATCH/POST/DELETE /api/line-groups` — API จัดการกลุ่มตามสิทธิ์
+  - admin/superadmin ดูรายการกลุ่มและแก้ชื่อกลุ่มได้
+  - เฉพาะ superadmin: toggle เปิด/ปิดกลุ่ม, sync ชื่อจาก LINE API, ลบกลุ่ม
 - [x] LineGroupsPage — หน้าจัดการกลุ่ม LINE บน Dashboard (superadmin/admin เท่านั้น)
+  - admin ซ่อนปุ่ม เปิด/ปิดการใช้งาน, ซิงค์ชื่อ, ลบ
 - [x] Cron 16:30 แจ้งงานค้าง + Cron 17:00 สรุปยอดประจำวัน — **ดึงกลุ่ม isActive จาก DB อัตโนมัติ** (รองรับหลายกลุ่ม)
 
 ## ✅ Phase 6: Audit Log (บันทึกการกระทำในระบบ)
 - [x] `AuditLog` model — TTL index 120 วัน (ลบอัตโนมัติ)
 - [x] `logAction()` helper — บันทึก log แบบ fire-and-forget (ไม่ block response)
 - [x] บันทึก log ที่: LOGIN, LOGIN_FAILED, LOGOUT, CREATE_TICKET, UPDATE_STATUS, FORWARD_TICKET
+- [x] บันทึก log เพิ่มเติม: REQUEST_ADDITIONAL_INFO, SUBMIT_ADDITIONAL_INFO, READ_ADDITIONAL_INFO, BACKUP_DATABASE
 - [x] บันทึก meta data เพิ่มเติม: การเปลี่ยนหน่วยงานจาก "ไม่แน่ใจ", ผู้ส่งต่อ, หน่วยงานต้นทาง-ปลายทาง
 - [x] `GET /api/audit` — ค้นหา/กรอง/pagination (superadmin เท่านั้น)
 - [x] `GET /api/audit/meta` — distinct actions & categories สำหรับ dropdown
 - [x] `AuditLogPage.jsx` — หน้าดู audit log พร้อม search, filter action/category, date range, pagination
 - [x] เมนู "🗂️ Audit Log" ใน Sidebar (superadmin เท่านั้น)
+
+## ✅ Phase 6.1: Backup Database (superadmin)
+- [x] เมนู "💾 Backup" ใน Sidebar เฉพาะ superadmin
+- [x] `GET /api/backup/download` — export ทุก collection เป็น JSON download
+- [x] บันทึก audit log action `BACKUP_DATABASE` เมื่อดาวน์โหลด backup จากเมนู
+- [x] Backup ครั้งแรกสำเร็จ: `backups/capp-db-backup-2026-05-06T10-39-53-774Z.json`
 
 ## 🔒 Security (ที่ได้ดำเนินการ)
 - [x] Helmet.js + CSP whitelist เฉพาะ domain ที่จำเป็น

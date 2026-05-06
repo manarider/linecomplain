@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  getTicket, updateStatus, forwardTicket,
+  getTicket, updateStatus, forwardTicket, markAdditionalInfoRead,
 } from '../api';
 import {
   DEPARTMENTS, TICKET_STATUS, STATUS_BADGE, formatDate, FULL_ACCESS_ROLES,
@@ -53,12 +53,14 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [forwardDept, setForwardDept]   = useState('');
   const [forwardNote, setForwardNote]   = useState('');
   const [showForward, setShowForward]   = useState(false);
+  const [requestAdditionalInfo, setRequestAdditionalInfo] = useState(false);
   const [saving, setSaving]       = useState(false);
   const [toast, setToast]         = useState('');
   const [completionFiles, setCompletionFiles]       = useState([]);
   const [completionPreviews, setCompletionPreviews] = useState([]);
   const cameraRef = useRef(null);
   const galleryRef = useRef(null);
+  const onUpdatedRef = useRef(onUpdated);
 
   const showToast = (msg, type = '') => {
     setToast({ msg, type });
@@ -66,9 +68,21 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   };
 
   useEffect(() => {
+    onUpdatedRef.current = onUpdated;
+  }, [onUpdated]);
+
+  useEffect(() => {
     setLoading(true);
     getTicket(ticketId)
-      .then(setTicket)
+      .then((data) => {
+        setTicket(data);
+        const hasUnreadAdditionalInfo = data.additionalInfoRequests?.some((item) => item.respondedAt && !item.isRead);
+        if (hasUnreadAdditionalInfo) {
+          markAdditionalInfoRead(ticketId)
+            .then(() => onUpdatedRef.current?.())
+            .catch(() => {});
+        }
+      })
       .catch(() => showToast('เกิดข้อผิดพลาดในการโหลดข้อมูล', 'error'))
       .finally(() => setLoading(false));
   }, [ticketId]);
@@ -78,7 +92,11 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     setSaving(true);
     try {
       const files = actionStatus === 'เสร็จสิ้น' ? completionFiles : [];
-      await updateStatus(ticketId, { status: actionStatus, note: actionNote }, files);
+      await updateStatus(ticketId, {
+        status: actionStatus,
+        note: actionNote,
+        requestAdditionalInfo,
+      }, files);
       showToast(`อัปเดตสถานะ "${actionStatus}" สำเร็จ ✅`, 'success');
       onUpdated();
       onClose();
@@ -123,6 +141,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   };
 
   const badge = ticket ? STATUS_BADGE[ticket.status] : null;
+  const answeredAdditionalInfo = ticket?.additionalInfoRequests?.filter((item) => item.respondedAt) || [];
   const canForward = user && FULL_ACCESS_ROLES.includes(user.role);
   // staff เห็น action form เฉพาะ ticket ของหน่วยงานตัวเอง
   const canEdit = user && (
@@ -393,7 +412,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     </table>
   </div>
 
-  ${(ticket.images?.length > 0 || ticket.completionImages?.length > 0 || ticket.history?.length > 0) ? `
+  ${(ticket.images?.length > 0 || ticket.additionalInfoRequests?.some(item => item.responseImages?.length > 0) || ticket.completionImages?.length > 0 || ticket.history?.length > 0) ? `
   <!-- หน้าที่ 2: ภาคผนวก -->
   <div class="page">
     <div class="appendix-header">ภาคผนวก</div>
@@ -402,6 +421,13 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     <div class="section-title">รูปภาพประกอบ</div>
     <div class="img-grid">
       ${ticket.images.map(f => `<img src="/uploads/${f}" alt="รูปประกอบ" />`).join('')}
+    </div>
+    ` : ''}
+
+    ${ticket.additionalInfoRequests?.some(item => item.responseImages?.length > 0) ? `
+    <div class="section-title">รูปภาพเพิ่มเติมจากผู้ร้อง</div>
+    <div class="img-grid">
+      ${ticket.additionalInfoRequests.flatMap(item => item.responseImages || []).map(f => `<img src="/uploads/${f}" alt="รูปเพิ่มเติม" />`).join('')}
     </div>
     ` : ''}
 
@@ -526,6 +552,18 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                 <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{ticket.description}</div>
               </Row>
 
+              {answeredAdditionalInfo.length > 0 && (
+                <>
+                  <SectionTitle>💬 ข้อมูลเพิ่มเติมจากผู้ร้อง</SectionTitle>
+                  {answeredAdditionalInfo.map((item) => (
+                    <div key={item._id || item.respondedAt} style={S.additionalInfoBox}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{item.responseText}</div>
+                      <div style={S.additionalInfoMeta}>ส่งเมื่อ {formatDate(item.respondedAt)}</div>
+                    </div>
+                  ))}
+                </>
+              )}
+
               <SectionTitle>🏢 หน่วยงาน</SectionTitle>
               <Row label="รับผิดชอบ">{ticket.assignedDepartment}</Row>
               {ticket.assignedToName && <Row label="ผู้รับเรื่อง">{ticket.assignedToName}</Row>}
@@ -541,6 +579,23 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                         key={f}
                         src={`/uploads/${f}`}
                         alt="รูปประกอบ"
+                        style={S.thumb}
+                        onClick={() => window.open(`/uploads/${f}`)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {answeredAdditionalInfo.some((item) => item.responseImages?.length > 0) && (
+                <>
+                  <SectionTitle>🖼️ รูปภาพเพิ่มเติมจากผู้ร้อง</SectionTitle>
+                  <div style={S.imgGrid}>
+                    {answeredAdditionalInfo.flatMap((item) => item.responseImages || []).map(f => (
+                      <img
+                        key={f}
+                        src={`/uploads/${f}`}
+                        alt="รูปเพิ่มเติม"
                         style={S.thumb}
                         onClick={() => window.open(`/uploads/${f}`)}
                       />
@@ -633,6 +688,15 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               value={actionNote}
               onChange={e => setActionNote(e.target.value)}
             />
+
+            <label style={S.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={requestAdditionalInfo}
+                onChange={e => setRequestAdditionalInfo(e.target.checked)}
+              />
+              ขอข้อมูลเพิ่มเติมจากผู้ร้อง
+            </label>
 
             {/* ── อัปโหลดรูปผลการดำเนินงาน (เฉพาะ เสร็จสิ้น) ── */}
             {actionStatus === 'เสร็จสิ้น' && (
@@ -779,12 +843,22 @@ const S = {
   imgGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 },
   thumb: { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, cursor: 'pointer' },
   historyItem: { padding: '8px 0', borderBottom: '1px solid #e2e8f0' },
+  additionalInfoBox: {
+    background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8,
+    padding: '10px 12px', marginBottom: 8, fontSize: '0.88rem', color: '#3b0764',
+  },
+  additionalInfoMeta: { marginTop: 6, fontSize: '0.75rem', color: '#7c3aed' },
   input: {
     width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
     borderRadius: 8, fontSize: '0.88rem', fontFamily: 'inherit',
     marginBottom: 10, display: 'block', background: '#fff',
   },
   actionBtns: { display: 'flex', gap: 10 },
+  checkboxRow: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    fontSize: '0.86rem', fontWeight: 600, color: '#374151',
+    margin: '0 0 10px', cursor: 'pointer',
+  },
   photoBtn: {
     flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
     gap: 6, padding: '10px 8px', border: '1.5px solid #1a5f9e',

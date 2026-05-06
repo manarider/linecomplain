@@ -13,6 +13,8 @@ const lineGroupRoutes = require('./src/routes/lineGroupRoutes');
 const quotaRoutes = require('./src/routes/quotaRoutes');
 const auditRoutes = require('./src/routes/auditRoutes');
 const statisticsRoutes = require('./src/routes/statisticsRoutes');
+const publicRoutes = require('./src/routes/publicRoutes');
+const backupRoutes = require('./src/routes/backupRoutes');
 const path = require('path');
 const fs = require('fs');
 
@@ -53,13 +55,24 @@ const allowedOrigins = [
   process.env.DOMAIN,           // https://complain.nsm.go.th
   'https://liff.line.me',       // LIFF iframe origin
 ];
-app.use(cors({
-  origin: (origin, cb) => {
-    // อนุญาต request ที่ไม่มี origin (เช่น curl, mobile app) หรือ origin ที่อยู่ใน list
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error('CORS not allowed'));
-  },
-  credentials: true,
+const isPublicReadPath = (req) => (
+  req.path.startsWith('/api/public') ||
+  req.path.startsWith('/embed/') ||
+  req.path.startsWith('/assets/')
+);
+app.use(cors((req, cb) => {
+  if (isPublicReadPath(req)) {
+    return cb(null, { origin: true, credentials: false });
+  }
+  return cb(null, {
+    origin: (origin, originCb) => {
+      // อนุญาต request ที่ไม่มี origin (เช่น curl, mobile app) หรือ origin ที่อยู่ใน list
+      if (!origin || allowedOrigins.includes(origin)) return originCb(null, true);
+      // ปฏิเสธ CORS โดยไม่ throw Error เพื่อป้องกัน unhandled error ใน Express
+      originCb(null, false);
+    },
+    credentials: true,
+  });
 }));
 
 // ── Routes: LINE Webhook (ต้องรับ raw body ก่อน json middleware) ──
@@ -99,11 +112,26 @@ const serveLiffPage = (req, res) => {
 app.get('/liff', serveLiffPage);
 app.get('/liff/', serveLiffPage);
 
+// ── Public Embed Page: อนุญาตให้นำไปฝังในเว็บไซต์อื่นได้ ─────
+const servePublicEmbedPage = (req, res, next) => {
+  const indexFile = path.join(__dirname, '../frontend/dist/index.html');
+  if (!fs.existsSync(indexFile)) return next();
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('Cross-Origin-Opener-Policy');
+  res.removeHeader('Cross-Origin-Resource-Policy');
+  res.sendFile(indexFile);
+};
+app.get('/embed/fiscal-summary', servePublicEmbedPage);
+
 // ── Routes: Authentication (ไม่ต้อง login ก่อน) ───────────
 app.use('/auth', authRoutes);
 
 // ── Routes: Ticket API (ไม่ต้อง auth – ส่งจาก LIFF โดยใช้ lineUserId) ─
 app.use('/api/tickets', ticketRoutes);
+
+// ── Routes: Public read-only APIs (ไม่ต้อง login) ──────────
+app.use('/api/public', publicRoutes);
 
 // ── Routes: Dashboard API (ต้อง login) ─────────────────────
 app.use('/api/dashboard', dashboardRoutes);
@@ -116,6 +144,9 @@ app.use('/api/quota', quotaRoutes);
 
 // ── Routes: Audit Log (ต้อง login + superadmin) ─────
 app.use('/api/audit', auditRoutes);
+
+// ── Routes: Database Backup (ต้อง login + superadmin) ─────
+app.use('/api/backup', backupRoutes);
 
 // ── Routes: Statistics (ต้อง login + admin/executive/superadmin) ─────
 app.use('/api/statistics', statisticsRoutes);
@@ -178,10 +209,10 @@ cron.schedule('0 6 * * *', () => {
   checkLineQuota().catch((e) => console.error('Cron quota error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-// 17:00 น. ทุกวันจันทร์-ศุกร์ → สรุปยอดประจำวัน + งานค้าง (Flex Message)
-cron.schedule('0 17 * * 1-5', () => {
-  console.log('⏰ Cron: สรุปยอด + งานค้าง 17:00');
+// 17:00 น. ทุกวัน → สรุปยอดประจำวัน (Flex Message)
+cron.schedule('0 17 * * *', () => {
+  console.log('⏰ Cron: สรุปยอดประจำวัน 17:00');
   runCronForAllActiveGroups(pushGroupEODSummary, 'eod-summary');
 }, { timezone: 'Asia/Bangkok' });
 
-console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา, 17:00 สรุปวัน+งานค้าง) — ดึงกลุ่มจาก DB อัตโนมัติ');
+console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา, 17:00 สรุปประจำวัน ทุกวัน) — ดึงกลุ่มจาก DB อัตโนมัติ');

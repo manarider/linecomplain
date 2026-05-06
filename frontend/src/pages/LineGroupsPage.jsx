@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getLineGroups, toggleLineGroup, syncGroupName, deleteLineGroup, updateGroupName } from '../api';
 
-export default function LineGroupsPage({ showToast }) {
+export default function LineGroupsPage({ showToast, user }) {
   const [groups, setGroups]       = useState([]);
   const [loading, setLoading]     = useState(true);
   const [editId, setEditId]       = useState(null);
   const [editName, setEditName]   = useState('');
+  const canManageActions = user?.role === 'superadmin';
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       setGroups(await getLineGroups());
@@ -16,9 +17,9 @@ export default function LineGroupsPage({ showToast }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const handleToggle = async (id) => {
     try {
@@ -114,20 +115,22 @@ export default function LineGroupsPage({ showToast }) {
                 {g.leftAt && ` · ออกเมื่อ ${new Date(g.leftAt).toLocaleDateString('th-TH')}`}
               </div>
 
-              <div style={S.actions}>
-                <button
-                  style={{ ...S.btnAction, background: g.isActive ? '#ef4444' : '#16a34a' }}
-                  onClick={() => handleToggle(g._id)}
-                >
-                  {g.isActive ? '🔴 ปิดใช้งาน' : '🟢 เปิดใช้งาน'}
-                </button>
-                <button style={{ ...S.btnAction, background: '#2563eb' }} onClick={() => handleSync(g._id)}>
-                  🔄 ซิงค์ชื่อ
-                </button>
-                <button style={{ ...S.btnAction, background: '#6b7280' }} onClick={() => handleDelete(g._id, g.groupName)}>
-                  🗑️ ลบ
-                </button>
-              </div>
+              {canManageActions && (
+                <div style={S.actions}>
+                  <button
+                    style={{ ...S.btnAction, background: g.isActive ? '#ef4444' : '#16a34a' }}
+                    onClick={() => handleToggle(g._id)}
+                  >
+                    {g.isActive ? '🔴 ปิดใช้งาน' : '🟢 เปิดใช้งาน'}
+                  </button>
+                  <button style={{ ...S.btnAction, background: '#2563eb' }} onClick={() => handleSync(g._id)}>
+                    🔄 ซิงค์ชื่อ
+                  </button>
+                  <button style={{ ...S.btnAction, background: '#6b7280' }} onClick={() => handleDelete(g._id, g.groupName)}>
+                    🗑️ ลบ
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAuditLogs, getAuditMeta } from '../api';
 
 // ── Action แปลเป็นภาษาไทย ─────────────────────────────────
@@ -50,15 +50,20 @@ export default function AuditLogPage({ showToast }) {
   }, []);
 
   // ── โหลด logs ──────────────────────────────────────────────
+  // ใช้ ref เก็บค่า search เพื่อให้ fetchLogs อ่านค่าล่าสุดได้เสมอ
+  // โดยไม่ต้องให้ search เป็น dependency (search fire ผ่านปุ่มเท่านั้น)
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
   const fetchLogs = useCallback(async (p = 1) => {
     setLoading(true);
     try {
       const params = { page: p, limit: 50 };
-      if (search)   params.search   = search;
-      if (action)   params.action   = action;
-      if (category) params.category = category;
-      if (from)     params.from     = from;
-      if (to)       params.to       = to;
+      if (searchRef.current) params.search   = searchRef.current;
+      if (action)            params.action   = action;
+      if (category)          params.category = category;
+      if (from)              params.from     = from;
+      if (to)                params.to       = to;
       const data = await getAuditLogs(params);
       setLogs(data.logs);
       setPagination(data.pagination);
@@ -67,12 +72,12 @@ export default function AuditLogPage({ showToast }) {
     } finally {
       setLoading(false);
     }
-  }, [search, action, category, from, to, showToast]);
+  }, [action, category, from, to, showToast]);
 
   useEffect(() => {
     setPage(1);
     fetchLogs(1);
-  }, [action, category, from, to]);   // eslint-disable-line
+  }, [fetchLogs]);
 
   const handleSearch = () => { setPage(1); fetchLogs(1); };
   const goPage = (p) => { setPage(p); fetchLogs(p); };

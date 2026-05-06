@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const Ticket = require('../models/Ticket');
+const { TICKET_STATUS } = require('../config/constants');
 
 // ── เฉพาะ admin, executive, superadmin เท่านั้น ───────────
 router.use(requireAuth, requireRole('admin', 'executive', 'staff', 'superadmin'));
@@ -36,10 +37,10 @@ router.get('/', async (req, res, next) => {
         $group: {
           _id: { month: { $month: '$createdAt' } },
           total: { $sum: 1 },
-          pending: { $sum: { $cond: [{ $eq: ['$status', 'รอรับเรื่อง'] }, 1, 0] } },
-          inProgress: { $sum: { $cond: [{ $eq: ['$status', 'ระหว่างดำเนินการ'] }, 1, 0] } },
-          completed: { $sum: { $cond: [{ $eq: ['$status', 'เสร็จสิ้น'] }, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $eq: ['$status', 'ไม่รับเรื่อง'] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.PENDING] }, 1, 0] } },
+          inProgress: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.IN_PROGRESS] }, 1, 0] } },
+          completed: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.COMPLETED] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.REJECTED] }, 1, 0] } },
         },
       },
       { $sort: { '_id.month': 1 } },
@@ -69,10 +70,10 @@ router.get('/', async (req, res, next) => {
         $group: {
           _id: null,
           total: { $sum: 1 },
-          pending: { $sum: { $cond: [{ $eq: ['$status', 'รอรับเรื่อง'] }, 1, 0] } },
-          inProgress: { $sum: { $cond: [{ $eq: ['$status', 'ระหว่างดำเนินการ'] }, 1, 0] } },
-          completed: { $sum: { $cond: [{ $eq: ['$status', 'เสร็จสิ้น'] }, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $eq: ['$status', 'ไม่รับเรื่อง'] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.PENDING] }, 1, 0] } },
+          inProgress: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.IN_PROGRESS] }, 1, 0] } },
+          completed: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.COMPLETED] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.REJECTED] }, 1, 0] } },
         },
       },
     ]);
@@ -88,10 +89,10 @@ router.get('/', async (req, res, next) => {
         $group: {
           _id: '$assignedDepartment',
           total: { $sum: 1 },
-          pending: { $sum: { $cond: [{ $eq: ['$status', 'รอรับเรื่อง'] }, 1, 0] } },
-          inProgress: { $sum: { $cond: [{ $eq: ['$status', 'ระหว่างดำเนินการ'] }, 1, 0] } },
-          completed: { $sum: { $cond: [{ $eq: ['$status', 'เสร็จสิ้น'] }, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $eq: ['$status', 'ไม่รับเรื่อง'] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.PENDING] }, 1, 0] } },
+          inProgress: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.IN_PROGRESS] }, 1, 0] } },
+          completed: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.COMPLETED] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$status', TICKET_STATUS.REJECTED] }, 1, 0] } },
         },
       },
       { $sort: { total: -1 } },
