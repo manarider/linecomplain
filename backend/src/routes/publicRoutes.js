@@ -38,7 +38,7 @@ router.get('/fiscal-summary', async (req, res) => {
     const fiscalEnd = new Date(fiscalYear, 8, 30, 23, 59, 59, 999);
     const matchFiscalPeriod = { createdAt: { $gte: fiscalStart, $lte: fiscalEnd } };
 
-    const [statusSummary, departmentStats, completionSummary] = await Promise.all([
+    const [statusSummary, departmentStats, completionSummary, firstTicket] = await Promise.all([
       Ticket.aggregate([
         { $match: matchFiscalPeriod },
         {
@@ -93,7 +93,12 @@ router.get('/fiscal-summary', async (req, res) => {
           },
         },
       ]),
+      Ticket.findOne({ createdAt: { $gte: fiscalStart, $lte: fiscalEnd } }, { createdAt: 1 }).sort({ createdAt: 1 }).lean(),
     ]);
+
+    const now = new Date();
+    const periodStart = firstTicket?.createdAt ? new Date(firstTicket.createdAt) : fiscalStart;
+    const periodEnd = now < fiscalEnd ? now : fiscalEnd;
 
     const totals = statusSummary[0] || { total: 0, completed: 0, inProgress: 0 };
     const completion = completionSummary[0] || { completed: 0, averageDurationMs: 0 };
@@ -113,9 +118,9 @@ router.get('/fiscal-summary', async (req, res) => {
       fiscalYear,
       fiscalYearBE: fiscalYear + 543,
       fiscalPeriod: {
-        start: formatLocalDate(fiscalStart),
-        end: formatLocalDate(fiscalEnd),
-        label: `${formatThaiDateShort(fiscalStart)} - ${formatThaiDateShort(fiscalEnd)}`,
+        start: formatLocalDate(periodStart),
+        end: formatLocalDate(periodEnd),
+        label: `${formatThaiDateShort(periodStart)} - ${formatThaiDateShort(periodEnd)}`,
       },
       generatedAt: new Date().toISOString(),
       totals: {

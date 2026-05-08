@@ -208,6 +208,12 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('backup'); setSidebarOpen(false); }}
             >💾 Backup</div>
           )}
+          {user && user.role === 'superadmin' && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'public-fiscal' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('public-fiscal'); setSidebarOpen(false); }}
+            >🌐 หน้าสถิติสาธารณะ</div>
+          )}
         </nav>
 
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
@@ -232,7 +238,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : activeMenu === 'public-fiscal' ? '🌐 หน้าสถิติสาธารณะ' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -266,6 +272,9 @@ export default function DashboardPage() {
           )}
           {activeMenu === 'line-users' && (
             <LineUsersPage showToast={showToast} />
+          )}
+          {activeMenu === 'public-fiscal' && (
+            <PublicFiscalManagePage />
           )}
           {activeMenu === 'tickets' && (<>
 
@@ -420,6 +429,126 @@ const STATUS_COLOR = {
   'เสร็จสิ้น': '#16a34a',
   'ไม่รับเรื่อง': '#dc2626',
 };
+
+// ── หน้าจัดการสถิติสาธารณะ (superadmin) ───────────────────
+function PublicFiscalManagePage() {
+  const origin = window.location.origin;
+  const publicUrl = `${origin}/embed/fiscal-summary`;
+  const [copied, setCopied] = useState(false);
+  const [previewYear, setPreviewYear] = useState('');
+  const [embedWidth, setEmbedWidth] = useState(960);
+  const [embedHeight, setEmbedHeight] = useState(540);
+
+  const currentFiscalYear = (() => {
+    const now = new Date();
+    return now.getMonth() >= 9 ? now.getFullYear() + 544 : now.getFullYear() + 543;
+  })();
+
+  const buildSrc = (w, h) => {
+    const params = new URLSearchParams();
+    if (previewYear) params.set('fiscalYear', previewYear);
+    params.set('width', w);
+    params.set('height', h);
+    return `${publicUrl}?${params.toString()}`;
+  };
+
+  const iframeSrc = buildSrc(embedWidth, embedHeight);
+  const embedCode = `<iframe src="${iframeSrc}" width="${embedWidth}" height="${embedHeight}" frameborder="0" scrolling="no" allowtransparency="true"></iframe>`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(embedCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const inputStyle = { width: 90, padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.875rem' };
+  const labelStyle = { fontWeight: 600, fontSize: '0.875rem' };
+
+  return (
+    <div style={{ padding: '24px', maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ margin: '0 0 6px', fontSize: '1.1rem', fontWeight: 700 }}>🌐 หน้าสถิติสาธารณะ (Public Fiscal Summary)</h2>
+        <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
+          หน้านี้เปิดให้สาธารณะเข้าถึงได้โดยไม่ต้องล็อกอิน — ใช้สำหรับฝัง (embed) ลงเว็บไซต์หรือจอแสดงผล
+        </p>
+      </div>
+
+      {/* ── การตั้งค่าตัวอย่าง ── */}
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={labelStyle}>ปีงบประมาณ (พ.ศ.):</label>
+          <input
+            type="number"
+            value={previewYear}
+            onChange={e => setPreviewYear(e.target.value)}
+            placeholder={String(currentFiscalYear)}
+            style={{ ...inputStyle, width: 110 }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={labelStyle}>กว้าง (px):</label>
+          <input
+            type="number"
+            value={embedWidth}
+            onChange={e => setEmbedWidth(Math.max(320, Number(e.target.value) || 960))}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={labelStyle}>สูง (px):</label>
+          <input
+            type="number"
+            value={embedHeight}
+            onChange={e => setEmbedHeight(Math.max(240, Number(e.target.value) || 540))}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[[960,540],[1280,720],[800,450],[640,360]].map(([w,h]) => (
+            <button key={`${w}x${h}`} onClick={() => { setEmbedWidth(w); setEmbedHeight(h); }}
+              style={{ padding: '4px 10px', background: embedWidth===w && embedHeight===h ? '#1a5f9e' : '#e2e8f0', color: embedWidth===w && embedHeight===h ? '#fff' : '#334155', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem' }}>
+              {w}×{h}
+            </button>
+          ))}
+        </div>
+        <a href={iframeSrc} target="_blank" rel="noopener noreferrer"
+          style={{ padding: '6px 16px', background: '#1a5f9e', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: '0.875rem', fontWeight: 600 }}>
+          🔗 เปิดในแท็บใหม่
+        </a>
+      </div>
+
+      {/* ── Embed Code ── */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>โค้ดสำหรับฝัง (Embed Code)</span>
+          <button onClick={handleCopy} style={{ padding: '4px 12px', background: copied ? '#16a34a' : '#475569', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.8rem' }}>
+            {copied ? '✅ คัดลอกแล้ว' : '📋 คัดลอก'}
+          </button>
+        </div>
+        <pre style={{ background: '#1e293b', color: '#e2e8f0', padding: '12px 16px', borderRadius: 8, fontSize: '0.75rem', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+          {embedCode}
+        </pre>
+      </div>
+
+      {/* ── Preview ── */}
+      <div>
+        <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: 8 }}>ตัวอย่างหน้า ({embedWidth}×{embedHeight})</div>
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'auto', background: '#f1f5f9' }}>
+          <iframe
+            key={iframeSrc}
+            src={iframeSrc}
+            width={embedWidth}
+            height={embedHeight}
+            style={{ border: 'none', display: 'block' }}
+            title="Public Fiscal Summary Preview"
+            scrolling="no"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Styles ─────────────────────────────────────────────────
 const S = {

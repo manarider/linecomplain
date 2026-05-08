@@ -45,6 +45,99 @@ function compressImage(file) {
   });
 }
 
+// ── Lightbox ──────────────────────────────────────────────
+function Lightbox({ images, index, onClose }) {
+  const [cur, setCur] = useState(index);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') setCur(c => (c + 1) % images.length);
+      if (e.key === 'ArrowLeft') setCur(c => (c - 1 + images.length) % images.length);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [images.length, onClose]);
+
+  const hasPrev = images.length > 1;
+  const hasNext = images.length > 1;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.88)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      {/* prev */}
+      {hasPrev && (
+        <button
+          onClick={e => { e.stopPropagation(); setCur(c => (c - 1 + images.length) % images.length); }}
+          style={LB.navBtn}
+          aria-label="ก่อนหน้า"
+        >&#8249;</button>
+      )}
+
+      {/* image */}
+      <div onClick={e => e.stopPropagation()} style={LB.imgWrap}>
+        <img
+          src={images[cur]}
+          alt={`รูปที่ ${cur + 1}`}
+          style={LB.img}
+        />
+        <div style={LB.counter}>{cur + 1} / {images.length}</div>
+        <a href={images[cur]} target="_blank" rel="noopener noreferrer" style={LB.openLink}>🔗 เปิดในแท็บใหม่</a>
+      </div>
+
+      {/* next */}
+      {hasNext && (
+        <button
+          onClick={e => { e.stopPropagation(); setCur(c => (c + 1) % images.length); }}
+          style={{ ...LB.navBtn, right: 16, left: 'auto' }}
+          aria-label="ถัดไป"
+        >&#8250;</button>
+      )}
+
+      {/* close */}
+      <button onClick={onClose} style={LB.closeBtn} aria-label="ปิด">✕</button>
+    </div>
+  );
+}
+
+const LB = {
+  navBtn: {
+    position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)',
+    background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+    fontSize: 44, lineHeight: 1, width: 52, height: 52, borderRadius: '50%',
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 10,
+  },
+  imgWrap: {
+    position: 'relative', maxWidth: '90vw', maxHeight: '90vh',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+  },
+  img: {
+    maxWidth: '90vw', maxHeight: '80vh',
+    objectFit: 'contain', borderRadius: 8,
+    boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+  },
+  counter: {
+    color: 'rgba(255,255,255,0.75)', fontSize: 13, fontWeight: 600,
+  },
+  openLink: {
+    color: 'rgba(255,255,255,0.6)', fontSize: 12, textDecoration: 'underline',
+  },
+  closeBtn: {
+    position: 'absolute', top: 16, right: 16,
+    background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff',
+    width: 40, height: 40, borderRadius: '50%', fontSize: 18,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 10,
+  },
+};
+
 export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [ticket, setTicket]       = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -58,6 +151,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [toast, setToast]         = useState('');
   const [completionFiles, setCompletionFiles]       = useState([]);
   const [completionPreviews, setCompletionPreviews] = useState([]);
+  const [lightbox, setLightbox] = useState(null); // { images: [], index: 0 }
   const cameraRef = useRef(null);
   const galleryRef = useRef(null);
   const onUpdatedRef = useRef(onUpdated);
@@ -574,48 +668,51 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                 <>
                   <SectionTitle>📷 รูปภาพประกอบ</SectionTitle>
                   <div style={S.imgGrid}>
-                    {ticket.images.map(f => (
+                    {ticket.images.map((f, i) => (
                       <img
                         key={f}
                         src={`/uploads/${f}`}
                         alt="รูปประกอบ"
                         style={S.thumb}
-                        onClick={() => window.open(`/uploads/${f}`)}
+                        onClick={() => setLightbox({ images: ticket.images.map(x => `/uploads/${x}`), index: i })}
                       />
                     ))}
                   </div>
                 </>
               )}
 
-              {answeredAdditionalInfo.some((item) => item.responseImages?.length > 0) && (
-                <>
-                  <SectionTitle>🖼️ รูปภาพเพิ่มเติมจากผู้ร้อง</SectionTitle>
-                  <div style={S.imgGrid}>
-                    {answeredAdditionalInfo.flatMap((item) => item.responseImages || []).map(f => (
-                      <img
-                        key={f}
-                        src={`/uploads/${f}`}
-                        alt="รูปเพิ่มเติม"
-                        style={S.thumb}
-                        onClick={() => window.open(`/uploads/${f}`)}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
+              {answeredAdditionalInfo.some((item) => item.responseImages?.length > 0) && (() => {
+                const imgs = answeredAdditionalInfo.flatMap((item) => item.responseImages || []);
+                return (
+                  <>
+                    <SectionTitle>🖼️ รูปภาพเพิ่มเติมจากผู้ร้อง</SectionTitle>
+                    <div style={S.imgGrid}>
+                      {imgs.map((f, i) => (
+                        <img
+                          key={f}
+                          src={`/uploads/${f}`}
+                          alt="รูปเพิ่มเติม"
+                          style={S.thumb}
+                          onClick={() => setLightbox({ images: imgs.map(x => `/uploads/${x}`), index: i })}
+                        />
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* รูปผลการดำเนินงาน */}
               {ticket.completionImages?.length > 0 && (
                 <>
                   <SectionTitle>✅ รูปภาพผลการดำเนินงาน</SectionTitle>
                   <div style={S.imgGrid}>
-                    {ticket.completionImages.map(f => (
+                    {ticket.completionImages.map((f, i) => (
                       <img
                         key={f}
                         src={`/uploads/${f}`}
                         alt="รูปผลงาน"
                         style={S.thumb}
-                        onClick={() => window.open(`/uploads/${f}`)}
+                        onClick={() => setLightbox({ images: ticket.completionImages.map(x => `/uploads/${x}`), index: i })}
                       />
                     ))}
                   </div>
@@ -786,6 +883,13 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
           </div>
         )}
       </div>
+      {lightbox && (
+        <Lightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   );
 }

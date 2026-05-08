@@ -1,5 +1,5 @@
 # 📋 แผนการพัฒนาระบบรับเรื่องร้องทุกข์ (CAPP — Complaint Application)
-> อัปเดตล่าสุด: 6 พฤษภาคม 2569
+> อัปเดตล่าสุด: 8 พฤษภาคม 2569
 
 ---
 
@@ -109,3 +109,25 @@
 - [x] Rate limiting สำหรับ `POST /api/tickets` (ป้องกัน spam)
   - จำกัด 5 คำร้อง/ชั่วโมง ต่อ lineUserId (แทน IP)
   - skipFailedRequests: true (ไม่นับ request ที่ error)
+
+## ✅ Phase 8: Public Fiscal Summary (หน้าสถิติสาธารณะ)
+- [x] หน้า `/embed/fiscal-summary` — แสดงสถิติปีงบประมาณแบบสาธารณะ ไม่ต้องล็อกอิน
+  - รองรับ query params: `fiscalYear`, `width`, `height`, `layout`
+  - layout อัตโนมัติ: horizontal, vertical, compact, counts ตามขนาด
+  - แสดง 3 panel: คำร้องทั้งหมด, เสร็จสิ้น (+ เวลาเฉลี่ย), อยู่ระหว่างดำเนินการ
+  - แยกแท่งกราฟตามหน่วยงาน ด้วย PALETTE สี 8 สี
+  - ปุ่ม "แจ้งเรื่องผ่าน LINE OA" ลิงก์ไปที่ `https://lin.ee/rOVBU2y` ด้านล่างหน้า
+  - ช่วงวันที่แสดงเป็น: วันที่ ticket แรกในปีนั้น – วันปัจจุบัน (หรือ 30 ก.ย. ถ้าปีจบแล้ว)
+- [x] เมนู "🌐 หน้าสถิติสาธารณะ" ใน Sidebar เฉพาะ superadmin
+  - เลือกปีงบประมาณ, ปรับขนาด width/height พร้อม preset (960×540, 1280×720, 800×450, 640×360)
+  - Embed Code แสดง `<iframe>` code พร้อมปุ่มคัดลอก
+  - Preview iframe แบบ realtime ในหน้า dashboard
+  - ปุ่มเปิดในแท็บใหม่
+- [x] backend: เพิ่ม `'self'` ใน CSP `frame-src` / `frameAncestors` เพื่อให้ iframe ใน dashboard ทำงานได้
+- [x] API `/api/public/fiscal-summary` — คำนวณวันเริ่มต้นจาก ticket แรกสุดในปี + วันสิ้นสุดปัจจุบัน
+
+## ✅ Phase 9: UX Improvements
+- [x] Lightbox เลื่อนดูภาพหลายรูปในการ์ดคำร้อง
+  - แยก 3 กลุ่ม: รูปภาพประกอบคำร้อง, รูปภาพเพิ่มเติม, รูปภาพผลการดำเนินงาน
+  - ปุ่ม prev/next + แสดงลำดับ (1/N) + ปิดด้วย overlay หรือปุ่ม ×
+  - keyboard navigation (Arrow keys + Escape)

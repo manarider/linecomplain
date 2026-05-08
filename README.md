@@ -57,12 +57,14 @@ app/
     │   ├── constants.js        # DEPARTMENTS, STATUS, ROLES (ต้องตรงกับ backend)
     │   └── pages/
     │       ├── LoginPage.jsx
-    │       ├── DashboardPage.jsx
+            ├── DashboardPage.jsx        # รวม PublicFiscalManagePage (superadmin)
             ├── LineGroupsPage.jsx
             ├── ComplainantsPage.jsx
             ├── QuotaPage.jsx
             ├── BackupPage.jsx
-            └── AuditLogPage.jsx
+            ├── AuditLogPage.jsx
+            ├── StatisticsPage.jsx
+            └── PublicFiscalSummaryPage.jsx  # /embed/fiscal-summary (สาธารณะ)
 ```
 
 ---
