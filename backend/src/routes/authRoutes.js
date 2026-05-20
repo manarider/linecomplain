@@ -54,9 +54,18 @@ router.get('/callback', async (req, res) => {
       subDepartment: permission.subDepartment,
     };
 
-    // 4. ออก JWT ของระบบร้องทุกข์ (อายุ 8 ชั่วโมง)
+    // ตรวจสอบว่า Request มาจาก Mobile หรือ PC
+    const userAgent = req.headers['user-agent'] || '';
+    const isMobile = /android|iphone|ipad|ipod|mobile|blackberry|windows phone/i.test(userAgent);
+
+    // 4. ออก JWT ของระบบร้องทุกข์
+    //    - Mobile: 30 วัน (คงสถานะจนกว่าจะ logout)
+    //    - PC:     10 ชั่วโมง
+    const jwtExpiry   = isMobile ? '30d'                  : '10h';
+    const cookieMaxAge = isMobile ? 30 * 24 * 60 * 60 * 1000 : 10 * 60 * 60 * 1000;
+
     const ourToken = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: '8h',
+      expiresIn: jwtExpiry,
     });
 
     // 5. เก็บ JWT ใน httpOnly cookie (ปลอดภัยจาก XSS)
@@ -64,7 +73,7 @@ router.get('/callback', async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production', // https only ใน production
       sameSite: 'lax',
-      maxAge: 8 * 60 * 60 * 1000, // 8 ชั่วโมง
+      maxAge: cookieMaxAge,
     });
 
     // 6. Redirect ไปหน้า Dashboard
@@ -94,10 +103,12 @@ router.get('/callback', async (req, res) => {
       errorMessage: error.message,
     });
     // กรณี UMS ตอบ 401 (token หมดอายุหรือไม่ถูกต้อง)
+    // ต้อง redirect ไปหน้า /login (React) ไม่ใช่ /auth/login (UMS)
+    // เพราะถ้า redirect ไป /auth/login จะวนลูปไม่สิ้นสุด
     if (error.response?.status === 401) {
-      return res.redirect('/auth/login');
+      return res.redirect('/login?error=session_expired');
     }
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการยืนยันตัวตน' });
+    res.redirect('/login?error=auth_failed');
   }
 });
 

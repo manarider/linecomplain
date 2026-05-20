@@ -187,7 +187,7 @@ app.listen(PORT, () => {
 
 // ── Scheduled LINE Notifications (node-cron) ───────────────
 const cron = require('node-cron');
-const { pushGroupEODSummary } = require('./src/utils/lineNotify');
+const { pushGroupWeeklySummary, pushAdminBatchAlert } = require('./src/utils/lineNotify');
 const { checkLineQuota } = require('./src/utils/lineQuota');
 const LineGroup = require('./src/models/LineGroup');
 
@@ -209,10 +209,29 @@ cron.schedule('0 6 * * *', () => {
   checkLineQuota().catch((e) => console.error('Cron quota error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-// 17:00 น. ทุกวัน → สรุปยอดประจำวัน (Flex Message)
-cron.schedule('0 17 * * *', () => {
-  console.log('⏰ Cron: สรุปยอดประจำวัน 17:00');
-  runCronForAllActiveGroups(pushGroupEODSummary, 'eod-summary');
+// 11:30 น. ทุกวัน → แจ้ง admin กลุ่ม: คำร้องที่เข้าช่วง 16:30 เมื่อวาน – 11:30 วันนี้
+cron.schedule('30 11 * * *', () => {
+  console.log('⏰ Cron: แจ้ง admin batch 11:30');
+  const toTime = new Date();
+  const fromTime = new Date();
+  fromTime.setDate(fromTime.getDate() - 1);
+  fromTime.setHours(16, 30, 0, 0);
+  pushAdminBatchAlert(fromTime, toTime).catch((e) => console.error('Cron admin-batch 11:30 error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา, 17:00 สรุปประจำวัน ทุกวัน) — ดึงกลุ่มจาก DB อัตโนมัติ');
+// 16:30 น. ทุกวัน → แจ้ง admin กลุ่ม: คำร้องที่เข้าช่วง 11:30 – 16:30 วันนี้
+cron.schedule('30 16 * * *', () => {
+  console.log('⏰ Cron: แจ้ง admin batch 16:30');
+  const toTime = new Date();
+  const fromTime = new Date();
+  fromTime.setHours(11, 30, 0, 0);
+  pushAdminBatchAlert(fromTime, toTime).catch((e) => console.error('Cron admin-batch 16:30 error:', e.message));
+}, { timezone: 'Asia/Bangkok' });
+
+// 17:00 น. ทุกวันศุกร์ → สรุปยอดประจำสัปดาห์ (Flex Message)
+cron.schedule('0 17 * * 5', () => {
+  console.log('⏰ Cron: สรุปยอดประจำสัปดาห์ (ศุกร์) 17:00');
+  runCronForAllActiveGroups(pushGroupWeeklySummary, 'weekly-summary');
+}, { timezone: 'Asia/Bangkok' });
+
+console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา | 11:30/16:30 แจ้ง admin | ศุกร์ 17:00 สรุปสัปดาห์) — ดึงกลุ่มจาก DB อัตโนมัติ');

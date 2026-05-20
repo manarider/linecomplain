@@ -1,16 +1,33 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getMe } from '../api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const error = searchParams.get('error'); // 'session_expired' | 'auth_failed' | null
 
-  // ถ้า login อยู่แล้ว ให้ redirect ไป dashboard ทันที
+  const [checking, setChecking] = useState(true);
+
   useEffect(() => {
     getMe()
       .then(() => navigate('/dashboard', { replace: true }))
-      .catch(() => {});
-  }, [navigate]);
+      .catch(() => {
+        setChecking(false);
+        // ถ้าไม่มี error param → auto-redirect ไป UMS ทันที
+        // ถ้ามี error param → แสดงหน้า login พร้อมข้อความแจ้ง (ไม่วนลูป)
+        if (!error) {
+          window.location.href = '/auth/login';
+        }
+      });
+  }, [navigate, error]);
+
+  const errorMessage = {
+    session_expired: 'Session หมดอายุ กรุณาเข้าสู่ระบบใหม่',
+    auth_failed: 'เกิดข้อผิดพลาดในการยืนยันตัวตน กรุณาลองอีกครั้ง',
+  }[error];
+
+  if (checking) return null; // รอตรวจสอบ session ก่อนแสดงผล
 
   return (
     <div style={styles.page}>
@@ -20,6 +37,9 @@ export default function LoginPage() {
         </div>
         <h1 style={styles.title}>CAPP ระบบรับแจ้งเรื่อง</h1>
         <p style={styles.subtitle}>เข้าสู่ระบบสำหรับเจ้าหน้าที่</p>
+        {errorMessage && (
+          <div style={styles.errorBox}>{errorMessage}</div>
+        )}
         <button
           style={styles.btn}
           onClick={() => { window.location.href = '/auth/login'; }}
@@ -89,6 +109,16 @@ const styles = {
     fontFamily: 'inherit',
     cursor: 'pointer',
     transition: 'background 0.2s',
+  },
+  errorBox: {
+    background: '#fff5f5',
+    border: '1px solid #feb2b2',
+    color: '#c53030',
+    borderRadius: '8px',
+    padding: '10px 14px',
+    fontSize: '0.85rem',
+    marginBottom: '16px',
+    textAlign: 'left',
   },
   footer: {
     position: 'fixed',

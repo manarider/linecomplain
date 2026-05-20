@@ -1,3 +1,7 @@
+// ⚠️  SYNC REQUIRED: ค่าเหล่านี้ต้องตรงกับไฟล์นี้เสมอ:
+//   backend/src/config/constants.js
+// ถ้าแก้ DEPARTMENTS, TICKET_STATUS, FULL_ACCESS_ROLES ที่นี่ ต้องแก้อีกไฟล์ด้วย
+
 export const DEPARTMENTS = [
   'สำนักปลัดเทศบาล',
   'สำนักการศึกษา',

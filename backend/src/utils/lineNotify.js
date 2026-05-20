@@ -305,33 +305,39 @@ const pushTicketConfirm = async (ticket, groupId = null) => {
     },
   };
 
-  // แจ้งส่วนตัวเสมอ
+  // แจ้งส่วนตัวเสมอ (ยกเลิกการส่งในกลุ่มแล้ว)
   await lineClient.pushMessage({ to: ticket.lineUserId, messages: [confirmMsg] });
-
-  // ถ้ามี groupId → แจ้งในกลุ่มด้วย Flex Message เดียวกัน
-  const targetGroup = groupId || ticket.groupId;
-  if (targetGroup && targetGroup.startsWith('C')) {
-    await lineClient.pushMessage({ to: targetGroup, messages: [confirmMsg] });
-  }
 };
 
 // ============================================================
-// pushGroupEODSummary — สรุปยอดประจำวัน 17:00 น. (Flex Message)
+// pushGroupWeeklySummary — สรุปยอดประจำสัปดาห์ ทุกวันศุกร์ 17:00 น.
 // ============================================================
-const pushGroupEODSummary = async (groupId) => {
+const pushGroupWeeklySummary = async (groupId) => {
+  const now = new Date();
 
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
+  // ช่วงสัปดาห์นี้: จันทร์ 00:00 → ศุกร์ 23:59
+  const dayOfWeek = now.getDay(); // 0=อา, 1=จ, ..., 5=ศ
+  const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() + diffToMonday);
+  weekStart.setHours(0, 0, 0, 0);
 
-  const [newToday, completedToday, inProgressToday] = await Promise.all([
-    Ticket.countDocuments({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
-    Ticket.countDocuments({ status: TICKET_STATUS.COMPLETED, updatedAt: { $gte: todayStart } }),
+  const weekEnd = new Date(now);
+  weekEnd.setHours(23, 59, 59, 999);
+
+  const [newThisWeek, completedThisWeek, inProgress, pending, forwarded] = await Promise.all([
+    Ticket.countDocuments({ createdAt: { $gte: weekStart, $lte: weekEnd } }),
+    Ticket.countDocuments({ status: TICKET_STATUS.COMPLETED, updatedAt: { $gte: weekStart, $lte: weekEnd } }),
     Ticket.countDocuments({ status: TICKET_STATUS.IN_PROGRESS }),
+    Ticket.countDocuments({ status: TICKET_STATUS.PENDING }),
+    Ticket.countDocuments({ status: TICKET_STATUS.FORWARDED }),
   ]);
 
-  const nowStr = new Date().toLocaleDateString('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    year: 'numeric', month: 'long', day: 'numeric',
+  const weekStartStr = weekStart.toLocaleDateString('th-TH', {
+    timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short',
+  });
+  const nowStr = now.toLocaleDateString('th-TH', {
+    timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric',
   });
 
   const statRow = (emoji, label, value, color = '#374151') => ({
@@ -344,25 +350,30 @@ const pushGroupEODSummary = async (groupId) => {
 
   const message = {
     type: 'flex',
-    altText: `📊 สรุปประจำวัน ${nowStr}`,
+    altText: `📊 สรุปประจำสัปดาห์ ${weekStartStr} – ${nowStr}`,
     contents: {
       type: 'bubble',
       header: {
         type: 'box', layout: 'vertical',
         contents: [
-          { type: 'text', text: '📊 สรุปประจำวัน', weight: 'bold', color: '#ffffff', size: 'md' },
-          { type: 'text', text: nowStr, color: '#ffffffcc', size: 'xs' },
+          { type: 'text', text: '📊 สรุปประจำสัปดาห์', weight: 'bold', color: '#ffffff', size: 'md' },
+          { type: 'text', text: `${weekStartStr} – ${nowStr}`, color: '#ffffffcc', size: 'xs' },
         ],
         backgroundColor: '#1a5f9e', paddingAll: '16px',
       },
       body: {
         type: 'box', layout: 'vertical', paddingAll: '16px',
         contents: [
-          { type: 'text', text: 'สถิติวันนี้', weight: 'bold', size: 'sm', color: '#1a5f9e' },
+          { type: 'text', text: 'สถิติสัปดาห์นี้', weight: 'bold', size: 'sm', color: '#1a5f9e' },
           { type: 'separator', margin: 'sm' },
-          statRow('📥', 'เรื่องใหม่วันนี้', newToday),
-          statRow('✅', 'เสร็จสิ้นวันนี้', completedToday, '#16a34a'),
-          statRow('🔧', 'กำลังดำเนินการ', inProgressToday, '#2563eb'),
+          statRow('📥', 'เรื่องใหม่สัปดาห์นี้', newThisWeek),
+          statRow('✅', 'เสร็จสิ้นสัปดาห์นี้', completedThisWeek, '#16a34a'),
+          { type: 'separator', margin: 'md' },
+          { type: 'text', text: 'สถานะคงค้าง ณ ปัจจุบัน', weight: 'bold', size: 'sm', color: '#1a5f9e', margin: 'md' },
+          { type: 'separator', margin: 'sm' },
+          statRow('⏳', 'รอรับเรื่อง', pending, '#d97706'),
+          statRow('🔧', 'กำลังดำเนินการ', inProgress, '#2563eb'),
+          statRow('📨', 'ส่งต่อหน่วยงาน', forwarded, '#7c3aed'),
         ],
       },
     },
@@ -371,4 +382,78 @@ const pushGroupEODSummary = async (groupId) => {
   await lineClient.pushMessage({ to: groupId, messages: [message] });
 };
 
-module.exports = { pushStatusUpdate, pushTicketConfirm, pushAdminNewTicketAlert, pushGroupEODSummary };
+// ============================================================
+// pushAdminBatchAlert — แจ้งกลุ่ม admin แบบรวมยอด วันละ 2 ครั้ง
+// fromTime, toTime: Date object ของช่วงเวลาที่ query
+// ============================================================
+const pushAdminBatchAlert = async (fromTime, toTime) => {
+  const adminGroupId = process.env.LINE_ADMIN_ID;
+  if (!adminGroupId || !adminGroupId.startsWith('C')) return;
+
+  const tickets = await Ticket.find(
+    { createdAt: { $gte: fromTime, $lte: toTime } },
+    'ticketNo subject assignedDepartment createdAt groupId'
+  ).sort({ createdAt: 1 }).lean();
+
+  if (!tickets.length) {
+    console.log(`[Admin Batch] ไม่มีคำร้องใหม่ช่วง ${fromTime.toLocaleTimeString('th-TH')} – ${toTime.toLocaleTimeString('th-TH')}`);
+    return;
+  }
+
+  const systemUrl = getSystemUrl();
+  const rangeStr = `${fromTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })} – ${toTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })} น.`;
+  const dateStr = toTime.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const rowItems = tickets.flatMap((t, i) => {
+    const { time } = formatTicketDateTime(t.createdAt);
+    const row = {
+      type: 'box', layout: 'vertical', paddingAll: '8px',
+      backgroundColor: i % 2 === 0 ? '#f8fafc' : '#ffffff',
+      contents: [
+        {
+          type: 'box', layout: 'horizontal',
+          contents: [
+            { type: 'text', text: t.ticketNo, size: 'xs', color: '#1a5f9e', weight: 'bold', flex: 4 },
+            { type: 'text', text: `${time} น.`, size: 'xs', color: '#888888', flex: 3, align: 'end' },
+          ],
+        },
+        { type: 'text', text: t.subject, size: 'sm', wrap: true, margin: 'xs', color: '#111827' },
+        { type: 'text', text: t.assignedDepartment || '-', size: 'xs', color: '#6b7280', margin: 'xs' },
+      ],
+    };
+    return i === 0 ? [row] : [{ type: 'separator' }, row];
+  });
+
+  const footerContents = systemUrl
+    ? [{ type: 'button', style: 'primary', height: 'sm', color: '#1a5f9e',
+        action: { type: 'uri', label: 'เปิดระบบหลังบ้าน', uri: systemUrl } }]
+    : [];
+
+  const message = {
+    type: 'flex',
+    altText: `📥 คำร้องใหม่ ${tickets.length} เรื่อง (${rangeStr})`,
+    contents: {
+      type: 'bubble',
+      header: {
+        type: 'box', layout: 'vertical',
+        contents: [
+          { type: 'text', text: `📥 คำร้องใหม่ ${tickets.length} เรื่อง`, weight: 'bold', color: '#ffffff', size: 'md' },
+          { type: 'text', text: `${dateStr} | ${rangeStr}`, color: '#ffffffcc', size: 'xs', margin: 'xs' },
+        ],
+        backgroundColor: '#d97706', paddingAll: '16px',
+      },
+      body: {
+        type: 'box', layout: 'vertical', paddingAll: '0px',
+        contents: rowItems,
+      },
+      ...(footerContents.length ? {
+        footer: { type: 'box', layout: 'vertical', contents: footerContents, paddingAll: '12px' },
+      } : {}),
+    },
+  };
+
+  await lineClient.pushMessage({ to: adminGroupId, messages: [message] });
+  console.log(`[Admin Batch] ส่งแจ้งกลุ่ม admin: ${tickets.length} เรื่อง (${rangeStr})`);
+};
+
+module.exports = { pushStatusUpdate, pushTicketConfirm, pushAdminBatchAlert, pushGroupWeeklySummary };

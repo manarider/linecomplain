@@ -111,7 +111,7 @@ export default function LineGroupsPage({ showToast, user }) {
 
               <div style={S.groupId}>{g.groupId}</div>
               <div style={S.meta}>
-                เพิ่มเมื่อ {new Date(g.addedAt).toLocaleDateString('th-TH')}
+                👥 {g.memberCount || 0} สมาชิก · เพิ่มเมื่อ {new Date(g.addedAt).toLocaleDateString('th-TH')}
                 {g.leftAt && ` · ออกเมื่อ ${new Date(g.leftAt).toLocaleDateString('th-TH')}`}
               </div>
 

@@ -9,6 +9,7 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { checkLineQuota, getLatestQuota, UsageStat } = require('../utils/lineQuota');
 const Ticket = require('../models/Ticket');
 const LineGroup = require('../models/LineGroup');
+const Counter = require('../models/Counter');
 
 const router = express.Router();
 
@@ -77,11 +78,16 @@ router.get('/push-stats', async (req, res) => {
       createdAt: { $gte: monthStart },
     });
 
-    // 2) ยืนยันรับเรื่อง (กลุ่ม): tickets ที่สร้างในเดือนนี้และมี groupId
-    const confirmGroup = await Ticket.countDocuments({
-      groupId: { $exists: true, $nin: [null, ''] },
-      createdAt: { $gte: monthStart },
-    });
+    // 2) แจ้งเตือนกลุ่ม admin เรื่องใหม่: tickets ที่สร้างในเดือนนี้ (pushAdminNewTicketAlert)
+    // คำนวนโดยคูณด้วยจำนวนสมาชิกในกลุ่ม admin (ถ้ามี)
+    const adminGroupId = process.env.LINE_ADMIN_ID;
+    let adminNewTickets = 0;
+    if (adminGroupId && adminGroupId.startsWith('C')) {
+      const ticketCount = await Ticket.countDocuments({ createdAt: { $gte: monthStart } });
+      const adminGroup = await LineGroup.findOne({ groupId: adminGroupId }).lean();
+      const adminMemberCount = adminGroup?.memberCount || 1;
+      adminNewTickets = ticketCount * adminMemberCount;
+    }
 
     // 3) แจ้งอัปเดตสถานะ: นับ history entries ของเดือนนี้ สำหรับ tickets ที่มี lineUserId
     const statusUpdateResult = await Ticket.aggregate([
@@ -92,20 +98,58 @@ router.get('/push-stats', async (req, res) => {
     ]);
     const statusUpdate = statusUpdateResult[0]?.total ?? 0;
 
-    // 4) สรุปประจำวัน (EOD): นับจาก active groups × จำนวนวันที่ผ่านในเดือน
-    const activeGroups = await LineGroup.countDocuments({ isActive: true });
+    // ตัวแปรที่ใช้ร่วมกัน
     const daysPassed = now.getDate(); // วันที่ปัจจุบัน = จำนวนวันที่ผ่านมา (รวมวันนี้)
-    const eodSummary = activeGroups * daysPassed;
+
+    // 4) แจ้งกลุ่ม admin แบบรวมยอด (pushAdminBatchAlert)
+    // Cron 2 ครั้ง/วัน (11:30 & 16:30) × วันที่ผ่าน × memberCount
+    let adminBatchAlert = 0;
+    if (adminGroupId && adminGroupId.startsWith('C')) {
+      const adminGroup = await LineGroup.findOne({ groupId: adminGroupId }).lean();
+      const adminMemberCount = adminGroup?.memberCount || 1;
+      adminBatchAlert = 2 * daysPassed * adminMemberCount;
+    }
+
+    // 5) สรุปประจำสัปดาห์ (pushGroupWeeklySummary)
+    // Cron ทุกวันศุกร์ 17:00 × จำนวนศุกร์ที่ผ่าน × ผลรวม memberCount
+    const totalMembersResult = await LineGroup.aggregate([
+      { $match: { isActive: true } },
+      { $group: { _id: null, totalMembers: { $sum: '$memberCount' } }}
+    ]);
+    const totalMembersInActiveGroups = totalMembersResult[0]?.totalMembers ?? 0;
+    const activeGroups = await LineGroup.countDocuments({ isActive: true });
+
+    // นับจำนวนวันศุกร์ที่ผ่านในเดือนนี้
+    let fridayCount = 0;
+    for (let d = 1; d <= daysPassed; d++) {
+      const date = new Date(now.getFullYear(), now.getMonth(), d);
+      if (date.getDay() === 5) fridayCount++; // 5 = ศุกร์
+    }
+    const weeklySummary = fridayCount * totalMembersInActiveGroups;
+
+    // 6) คำสั่ง "ตามเรื่อง" ในกลุ่ม (push ไปส่วนตัว)
+    // นับจาก Counter collection โดยใช้ key 'tracking_YYMM'
+    const yymm = String(now.getFullYear()).slice(-2) + String(now.getMonth() + 1).padStart(2, '0');
+    const trackingKey = `tracking_${yymm}`;
+    const trackingCounter = await Counter.findOne({ _id: trackingKey }).lean();
+    const trackingRequests = trackingCounter?.seq ?? 0;
+
+    const total = confirmUser + adminNewTickets + statusUpdate + adminBatchAlert + weeklySummary + trackingRequests;
 
     res.json({
       confirmUser,
-      confirmGroup,
+      adminNewTickets,
       statusUpdate,
-      eodSummary,
+      adminBatchAlert,
+      weeklySummary,
+      trackingRequests,
       activeGroups,
-      total: confirmUser + confirmGroup + statusUpdate + eodSummary,
+      totalMembersInActiveGroups,
+      fridayCount,
+      total,
       month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
-      note: 'eodSummary เป็นค่าประมาณ (groups × วัน)',
+      note: 'คำนวนจาก push ทั้งหมดในระบบ (รวม "ตามเรื่อง" จริง)',
+      warnings: [],
     });
   } catch (err) {
     console.error('GET /api/quota/push-stats error:', err.message);

@@ -8,8 +8,9 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const Ticket = require('../models/Ticket');
 const { DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
-const { pushTicketConfirm, pushAdminNewTicketAlert } = require('../utils/lineNotify');
+const { pushTicketConfirm } = require('../utils/lineNotify');
 const { logAction, actorFromLiff, getIp } = require('../utils/auditLog');
+const { uploadsDir, cleanupFiles, getDateBasedPath } = require('../utils/fileHelper');
 
 // ── Rate Limiter: ป้องกัน spam submit ─────────────────────
 // จำกัด 5 คำร้องต่อ lineUserId ต่อ 1 ชั่วโมง (ป้องกัน spam)
@@ -41,6 +42,17 @@ const additionalInfoLimiter = rateLimit({
   validate: false,
 });
 
+// ── Rate Limiter: ป้องกัน enumerate ticketNo ──────────────────
+const statusLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 นาที
+  max: 30,             // ไม่เกิน 30 ครั้ง/นาที/IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'ตรวจสอบสถานะบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่' },
+  keyGenerator: (req) => req.ip || 'unknown',
+  validate: false,
+});
+
 // ── LIFF ID Token Verification ─────────────────────────────
 // ยืนยัน idToken กับ LINE API เพื่อป้องกันการปลอม lineUserId
 const verifyLiffIdToken = async (idToken, claimedUserId) => {
@@ -60,17 +72,18 @@ const verifyLiffIdToken = async (idToken, claimedUserId) => {
 
 const router = express.Router();
 
-// ── Multer: กำหนดที่เก็บรูปภาพ ────────────────────────────
-const uploadsDir = path.join(__dirname, '../../uploads');
-
-// สร้างโฟลเดอร์ถ้ายังไม่มี
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+    // สร้าง folder ตามวันที่สำหรับ ticket ใหม่
+    const datePath = getDateBasedPath();
+    const fullPath = path.join(uploadsDir, datePath);
+
+    // สร้าง folder ถ้ายังไม่มี
+    if (!fs.existsSync(fullPath)) {
+      fs.mkdirSync(fullPath, { recursive: true });
+    }
+
+    cb(null, fullPath);
   },
   filename: (req, file, cb) => {
     // ชื่อไฟล์: timestamp-random.ext (ป้องกัน path traversal)
@@ -118,15 +131,61 @@ const heicUpload = multer({
 // ============================================================
 router.post('/preview-heic', (req, res) => {
   heicUpload.single('image')(req, res, async (err) => {
-    if (err) return res.status(400).json({ message: err.message });
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'ไฟล์มีขนาดเกิน 30 MB' });
+      }
+      return res.status(400).json({ message: err.message });
+    }
     if (!req.file) return res.status(400).json({ message: 'ไม่พบไฟล์' });
+
     try {
-      // ขั้น 1: แปลง HEIC → JPEG ด้วย heic-convert (รองรับ H.265)
-      const jpegRawBuffer = await heicConvert({
-        buffer: req.file.buffer,
-        format: 'JPEG',
-        quality: 0.8,
-      });
+      const buffer = req.file.buffer;
+
+      // ตรวจสอบ magic number ของ HEIC/HEIF (ftyp box)
+      // HEIC ควรมี 'ftyp' ที่ offset 4-8 และตามด้วย 'heic', 'heix', 'hevc', 'hevx', 'mif1'
+      const isValidHEIC = buffer.length >= 12 &&
+        buffer.toString('ascii', 4, 8) === 'ftyp' &&
+        /^(heic|heix|hevc|hevx|mif1|msf1)/.test(buffer.toString('ascii', 8, 12));
+
+      if (!isValidHEIC) {
+        return res.status(400).json({
+          message: 'ไฟล์ไม่ใช่รูปภาพ HEIC/HEIF ที่ถูกต้อง กรุณาตรวจสอบไฟล์แล้วลองใหม่อีกครั้ง'
+        });
+      }
+
+      // ตรวจสอบขนาดไฟล์ (ป้องกัน DoS)
+      if (buffer.length > 30 * 1024 * 1024) {
+        return res.status(400).json({ message: 'ไฟล์มีขนาดใหญ่เกินไป (สูงสุด 30 MB)' });
+      }
+
+      // ขั้น 1: แปลง HEIC → JPEG ด้วย heic-convert (พร้อม timeout protection)
+      let jpegRawBuffer;
+      try {
+        // Timeout wrapper เพื่อป้องกันไฟล์ที่ process ช้ามากๆ
+        const convertPromise = heicConvert({
+          buffer: buffer,
+          format: 'JPEG',
+          quality: 0.8,
+        });
+
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('TIMEOUT')), 30000); // 30 วินาที
+        });
+
+        jpegRawBuffer = await Promise.race([convertPromise, timeoutPromise]);
+      } catch (convertErr) {
+        if (convertErr.message === 'TIMEOUT') {
+          return res.status(408).json({
+            message: 'การแปลงไฟล์ใช้เวลานานเกินไป กรุณาลองใช้ไฟล์ที่เล็กกว่า'
+          });
+        }
+        // ไฟล์พังหรือไม่ใช่ HEIC จริง
+        console.error('HEIC convert error:', convertErr.message);
+        return res.status(400).json({
+          message: 'ไม่สามารถแปลงไฟล์ได้ ไฟล์อาจเสียหายหรือไม่ใช่รูปภาพ HEIC ที่ถูกต้อง'
+        });
+      }
 
       // ขั้น 2: resize ด้วย sharp และลด quality จนได้ไม่เกิน 500KB
       const MAX_DIM = 1280;
@@ -160,9 +219,13 @@ router.post('/preview-heic', (req, res) => {
         name:           req.file.originalname.replace(/\.[^.]+$/, '.jpg'),
       });
     } catch (e) {
-      console.error('HEIC convert error:', e);
-      res.status(500).json({ message: 'ไม่สามารถแปลงไฟล์ HEIC ได้: ' + e.message });
+      // Unexpected errors (sharp errors, etc.)
+      console.error('HEIC preview unexpected error:', e);
+      res.status(500).json({
+        message: 'เกิดข้อผิดพลาดในการประมวลผลไฟล์ กรุณาลองใหม่อีกครั้ง'
+      });
     }
+    // หมายเหตุ: buffer จะถูก cleanup อัตโนมัติหลัง request จบ (memoryStorage)
   });
 });
 
@@ -231,50 +294,54 @@ router.post('/additional-info/:token', additionalInfoLimiter, async (req, res) =
       : '';
 
     if (!lineUserId || !responseText) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(400).json({ message: 'กรุณากรอกข้อมูลเพิ่มเติมให้ครบถ้วน' });
     }
     if (!idToken) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(401).json({ message: 'ไม่พบ idToken กรุณาเปิดแอปผ่าน LINE ใหม่' });
     }
 
     try {
       const valid = await verifyLiffIdToken(idToken, lineUserId);
       if (!valid) {
-        if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+        cleanupFiles(req.files);
         return res.status(403).json({ message: 'ตรวจสอบตัวตนไม่ผ่าน กรุณาเปิดแอปผ่าน LINE ใหม่' });
       }
     } catch (tokenErr) {
       console.error('LIFF token verify error:', tokenErr.message);
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(503).json({ message: 'ไม่สามารถยืนยันตัวตนได้ชั่วคราว กรุณาลองใหม่' });
     }
 
     const ticket = await Ticket.findOne({ 'additionalInfoRequests.token': req.params.token });
     if (!ticket) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(404).json({ message: 'ไม่พบคำขอข้อมูลเพิ่มเติมนี้' });
     }
     if (ticket.lineUserId !== lineUserId) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(403).json({ message: 'ไม่มีสิทธิ์ส่งข้อมูลให้คำร้องนี้' });
     }
 
     const infoRequest = ticket.additionalInfoRequests.find((item) => item.token === req.params.token);
     if (!infoRequest) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(404).json({ message: 'ไม่พบคำขอข้อมูลเพิ่มเติมนี้' });
     }
 
     // ป้องกันการส่งข้อมูลซ้ำหลังจากตอบแล้ว
     if (infoRequest.respondedAt) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(409).json({ message: 'ได้ส่งข้อมูลเพิ่มเติมนี้ไปแล้ว ไม่สามารถแก้ไขได้' });
     }
 
     infoRequest.responseText = responseText;
-    infoRequest.responseImages = req.files ? req.files.map((f) => f.filename) : [];
+    // เก็บ relative path เหมือนกับ ticket images (backward compatible)
+    infoRequest.responseImages = req.files ? req.files.map((f) => {
+      const relativePath = path.relative(uploadsDir, f.path).replace(/\\/g, '/');
+      return relativePath;
+    }) : [];
     infoRequest.respondedAt = new Date();
     infoRequest.isRead = false;
     infoRequest.readById = '';
@@ -307,7 +374,7 @@ router.post('/additional-info/:token', additionalInfoLimiter, async (req, res) =
 
     res.json({ message: 'ระบบได้รับข้อมูลเพิ่มเติมแล้ว', ticketNo: ticket.ticketNo });
   } catch (error) {
-    if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+    cleanupFiles(req.files);
     console.error('POST /api/tickets/additional-info error:', error.message);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งข้อมูลเพิ่มเติม' });
   }
@@ -335,10 +402,7 @@ router.post('/', submitLimiter, async (req, res) => {
 
     // ── Validate ข้อมูลที่จำเป็น ──────────────────────────
     if (!lineUserId || !subject || !description || !phone) {
-      // ลบไฟล์ที่อัปโหลดมาถ้า validate ไม่ผ่าน
-      if (req.files) {
-        req.files.forEach((f) => fs.unlink(f.path, () => {}));
-      }
+      cleanupFiles(req.files);
       return res.status(400).json({
         message: 'กรุณากรอกข้อมูลให้ครบ (lineUserId, subject, description, phone)',
       });
@@ -347,18 +411,18 @@ router.post('/', submitLimiter, async (req, res) => {
     // ── ยืนยัน LIFF ID Token กับ LINE API ─────────────────
     // ป้องกันการปลอม lineUserId โดยตรวจสอบกับ token จริง
     if (!idToken) {
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(401).json({ message: 'ไม่พบ idToken กรุณาเปิดแอปผ่าน LINE ใหม่' });
     }
     try {
       const valid = await verifyLiffIdToken(idToken, lineUserId);
       if (!valid) {
-        if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+        cleanupFiles(req.files);
         return res.status(403).json({ message: 'ตรวจสอบตัวตนไม่ผ่าน กรุณาเปิดแอปผ่าน LINE ใหม่' });
       }
     } catch (tokenErr) {
       console.error('LIFF token verify error:', tokenErr.message);
-      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      cleanupFiles(req.files);
       return res.status(503).json({ message: 'ไม่สามารถยืนยันตัวตนได้ชั่วคราว กรุณาลองใหม่' });
     }
 
@@ -370,8 +434,14 @@ router.post('/', submitLimiter, async (req, res) => {
     // ── ตำแหน่ง GPS (optional) ────────────────────────────
     const location = lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null;
 
-    // ── เก็บชื่อไฟล์รูปภาพ ────────────────────────────────
-    const imageFiles = req.files ? req.files.map((f) => f.filename) : [];
+    // ── เก็บชื่อไฟล์รูปภาพ (relative path จาก uploads/) ───
+    // ไฟล์ใหม่จะเป็น: 2026/05/08/abc123.jpg
+    // ไฟล์เก่าจะเป็น: abc123.jpg (backward compatible)
+    const imageFiles = req.files ? req.files.map((f) => {
+      // Extract relative path จาก uploads folder
+      const relativePath = path.relative(uploadsDir, f.path).replace(/\\/g, '/');
+      return relativePath;
+    }) : [];
 
     // ── บันทึก Ticket ลง MongoDB ──────────────────────────
     const ticket = new Ticket({
@@ -395,10 +465,6 @@ router.post('/', submitLimiter, async (req, res) => {
       console.error('LINE confirm push error:', err.message)
     );
 
-    // ── Push แจ้งเตือนกลุ่ม LINE admin (ไม่ blocking) ─────
-    pushAdminNewTicketAlert(ticket).catch((err) =>
-      console.error('LINE admin alert push error:', err.message)
-    );
 
     // ── Audit Log ──
     logAction({
@@ -419,10 +485,8 @@ router.post('/', submitLimiter, async (req, res) => {
       ticketId: ticket._id,
     });
   } catch (error) {
-    // ลบไฟล์ที่อัปโหลดมาถ้า error
-    if (req.files) {
-      req.files.forEach((f) => fs.unlink(f.path, () => {}));
-    }
+    // ลบไฟล์ที่อัปโหลดมาถ้า error (ป้องกัน temp files ค้าง)
+    cleanupFiles(req.files);
     console.error('POST /api/tickets error:', error.message);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
   }
@@ -432,7 +496,7 @@ router.post('/', submitLimiter, async (req, res) => {
 // GET /api/tickets/status/:ticketNo
 // ตรวจสอบสถานะเรื่องร้องทุกข์ (สำหรับผู้แจ้ง)
 // ============================================================
-router.get('/status/:ticketNo', async (req, res) => {
+router.get('/status/:ticketNo', statusLimiter, async (req, res) => {
   try {
     const ticket = await Ticket.findOne(
       { ticketNo: req.params.ticketNo },

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  getTicket, updateStatus, forwardTicket, markAdditionalInfoRead,
+  getTicket, updateStatus, forwardTicket, markAdditionalInfoRead, deleteCompletionImage,
 } from '../api';
 import {
   DEPARTMENTS, TICKET_STATUS, STATUS_BADGE, formatDate, FULL_ACCESS_ROLES,
@@ -143,6 +143,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [loading, setLoading]     = useState(true);
   const [actionStatus, setActionStatus] = useState('');
   const [actionNote, setActionNote]     = useState('');
+  const [actionDept, setActionDept]     = useState('');
   const [forwardDept, setForwardDept]   = useState('');
   const [forwardNote, setForwardNote]   = useState('');
   const [showForward, setShowForward]   = useState(false);
@@ -152,6 +153,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [completionFiles, setCompletionFiles]       = useState([]);
   const [completionPreviews, setCompletionPreviews] = useState([]);
   const [lightbox, setLightbox] = useState(null); // { images: [], index: 0 }
+  const [deletingImage, setDeletingImage] = useState(null); // filename ที่กำลังลบ
   const cameraRef = useRef(null);
   const galleryRef = useRef(null);
   const onUpdatedRef = useRef(onUpdated);
@@ -170,6 +172,8 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     getTicket(ticketId)
       .then((data) => {
         setTicket(data);
+        // ตั้งค่า default หน่วยงานตามคำร้อง (ยกเว้น ไม่แน่ใจ บังคับให้เลือกใหม่)
+        setActionDept(data.assignedDepartment !== 'ไม่แน่ใจ' ? data.assignedDepartment : '');
         const hasUnreadAdditionalInfo = data.additionalInfoRequests?.some((item) => item.respondedAt && !item.isRead);
         if (hasUnreadAdditionalInfo) {
           markAdditionalInfoRead(ticketId)
@@ -183,6 +187,11 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
 
   const handleUpdateStatus = async () => {
     if (!actionStatus) { showToast('กรุณาเลือกสถานะ', 'error'); return; }
+    // ถ้าหน่วยงานเป็น "ไม่แน่ใจ" บังคับต้องเลือกหน่วยงานใหม่ก่อนบันทึก
+    if (ticket.assignedDepartment === 'ไม่แน่ใจ' && !actionDept) {
+      showToast('กรุณาเลือกหน่วยงานที่รับผิดชอบก่อนบันทึกสถานะ', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const files = actionStatus === 'เสร็จสิ้น' ? completionFiles : [];
@@ -190,6 +199,8 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
         status: actionStatus,
         note: actionNote,
         requestAdditionalInfo,
+        // ส่ง newDepartment เฉพาะกรณีที่เปลี่ยนจากค่าเดิม
+        ...(actionDept && actionDept !== ticket.assignedDepartment ? { newDepartment: actionDept } : {}),
       }, files);
       showToast(`อัปเดตสถานะ "${actionStatus}" สำเร็จ ✅`, 'success');
       onUpdated();
@@ -219,6 +230,21 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const removeCompletionImage = (i) => {
     setCompletionFiles((p) => p.filter((_, j) => j !== i));
     setCompletionPreviews((p) => p.filter((_, j) => j !== i));
+  };
+
+  const handleDeleteCompletionImage = async (filename) => {
+    if (!window.confirm('ยืนยันลบรูปนี้ออกจากผลการดำเนินงาน?\nการลบจะไม่สามารถกู้คืนได้')) return;
+    setDeletingImage(filename);
+    try {
+      await deleteCompletionImage(ticketId, filename);
+      setTicket(t => ({ ...t, completionImages: t.completionImages.filter(f => f !== filename) }));
+      showToast('ลบรูปสำเร็จ ✅', 'success');
+      onUpdated();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setDeletingImage(null);
+    }
   };
 
   const handleForward = async () => {
@@ -707,13 +733,22 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                   <SectionTitle>✅ รูปภาพผลการดำเนินงาน</SectionTitle>
                   <div style={S.imgGrid}>
                     {ticket.completionImages.map((f, i) => (
-                      <img
-                        key={f}
-                        src={`/uploads/${f}`}
-                        alt="รูปผลงาน"
-                        style={S.thumb}
-                        onClick={() => setLightbox({ images: ticket.completionImages.map(x => `/uploads/${x}`), index: i })}
-                      />
+                      <div key={f} style={{ position: 'relative' }}>
+                        <img
+                          src={`/uploads/${f}`}
+                          alt="รูปผลงาน"
+                          style={S.thumb}
+                          onClick={() => setLightbox({ images: ticket.completionImages.map(x => `/uploads/${x}`), index: i })}
+                        />
+                        {user?.role === 'superadmin' && (
+                          <button
+                            style={{ ...S.removeThumb, opacity: deletingImage === f ? 0.5 : 1 }}
+                            onClick={() => handleDeleteCompletionImage(f)}
+                            disabled={!!deletingImage}
+                            title="ลบรูปนี้"
+                          >{deletingImage === f ? '...' : '✕'}</button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </>
@@ -769,8 +804,8 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
           </div>
         )}
 
-        {/* Action Form — ซ่อนเมื่อ เสร็จสิ้น หรือ ไม่รับเรื่อง หรือ staff ดู ticket หน่วยงานอื่น */}
-        {!loading && ticket && ticket.status !== 'เสร็จสิ้น' && ticket.status !== 'ไม่รับเรื่อง' && canEdit && (
+        {/* Action Form — ซ่อนเมื่อ เสร็จสิ้น หรือ ไม่รับเรื่อง ยกเว้น superadmin */}
+        {!loading && ticket && (ticket.status !== 'เสร็จสิ้น' && ticket.status !== 'ไม่รับเรื่อง' || user?.role === 'superadmin') && canEdit && (
           <div style={S.actionForm}>
             <SectionTitle>⚙️ ดำเนินการ</SectionTitle>
             <select style={S.input} value={actionStatus} onChange={e => setActionStatus(e.target.value)}>
@@ -779,6 +814,34 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+
+            {/* ── เลือกหน่วยงาน ── */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: ticket.assignedDepartment === 'ไม่แน่ใจ' ? '#dc2626' : '#555', marginBottom: 4 }}>
+                🏢 หน่วยงานที่รับผิดชอบ
+                {ticket.assignedDepartment === 'ไม่แน่ใจ'
+                  ? <span style={{ color: '#dc2626' }}> * (บังคับระบุ)</span>
+                  : <span style={{ color: '#999', fontWeight: 400 }}> (ไม่บังคับเปลี่ยน)</span>
+                }
+              </div>
+              <select
+                style={{
+                  ...S.input,
+                  marginBottom: 0,
+                  borderColor: ticket.assignedDepartment === 'ไม่แน่ใจ' && !actionDept ? '#dc2626' : undefined,
+                }}
+                value={actionDept}
+                onChange={e => setActionDept(e.target.value)}
+              >
+                {ticket.assignedDepartment === 'ไม่แน่ใจ'
+                  ? <option value="">-- เลือกหน่วยงาน --</option>
+                  : null
+                }
+                {DEPARTMENTS.filter(d => d !== 'ไม่แน่ใจ').map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
             <textarea
               style={{ ...S.input, minHeight: 64, resize: 'vertical' }}
               placeholder="หมายเหตุ (ไม่บังคับ)"
@@ -849,7 +912,7 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               <button style={S.btnUpdate} disabled={saving} onClick={handleUpdateStatus}>
                 💾 บันทึกสถานะ
               </button>
-              {canForward && (
+              {canForward && ticket?.status !== 'รอรับเรื่อง' && (
                 <button style={S.btnForward} onClick={() => setShowForward(v => !v)}>
                   � ส่งต่อหน่วยงาน
                 </button>

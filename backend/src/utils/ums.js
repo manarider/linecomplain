@@ -31,16 +31,29 @@ const ROLE_MAP = {
   user:       'user',
 };
 
+// ดึง identifier จาก p.project ไม่ว่าจะเป็น ObjectId string หรือ populated object
+const resolveProjectId = (project) => {
+  if (!project) return [];
+  if (typeof project === 'string') return [project];
+  if (typeof project === 'object') {
+    const ids = [];
+    if (project._id)  ids.push(String(project._id));
+    if (project.code) ids.push(String(project.code));
+    return ids;
+  }
+  return [];
+};
+
 const extractProjectPermission = (umsUser) => {
   const permissions = umsUser.projectPermissions || [];
   const projectKey = process.env.UMS_PROJECT_KEY;
 
-  // UMS อาจเก็บ field เป็น `project` (ObjectId string) หรือ `projectKey`
-  const projectPerm = permissions.find(
-    (p) =>
-      String(p.project) === projectKey ||
-      String(p.projectKey) === projectKey
-  );
+  const projectPerm = permissions.find((p) => {
+    // ตรวจ p.projectKey ก่อน (ถ้า UMS ส่งมาตรง)
+    if (p.projectKey && String(p.projectKey) === projectKey) return true;
+    // ตรวจ p.project ซึ่งอาจเป็น string หรือ populated object
+    return resolveProjectId(p.project).includes(projectKey);
+  });
 
   if (!projectPerm) {
     return null; // ไม่มีสิทธิ์ในโปรเจกต์นี้

@@ -104,10 +104,24 @@ ticketSchema.pre('save', async function () {
 });
 
 // ── Indexes สำหรับ query ที่ใช้บ่อย ──────────────────────
-ticketSchema.index({ status: 1 });
-ticketSchema.index({ status: 1, assignedDepartment: 1 });
-ticketSchema.index({ createdAt: -1 });
+// 🔍 Dashboard query patterns: filter (status/department) + sort (createdAt desc)
+ticketSchema.index({ status: 1, assignedDepartment: 1, createdAt: -1 }); // ดีสุด: filter + sort ในครั้งเดียว
+ticketSchema.index({ status: 1, createdAt: -1 });                        // filter status + sort
+ticketSchema.index({ assignedDepartment: 1, createdAt: -1 });            // filter department + sort
+ticketSchema.index({ createdAt: -1 });                                   // sort อย่างเดียว (all tickets)
+
+// 🔍 Additional info request queries
 ticketSchema.index({ 'additionalInfoRequests.token': 1 });
 ticketSchema.index({ 'additionalInfoRequests.isRead': 1, 'additionalInfoRequests.respondedAt': 1 });
+
+// 🔍 Text search สำหรับ ticketNo, subject, displayName (ใช้แทน regex ได้เร็วกว่า)
+ticketSchema.index({ ticketNo: 'text', subject: 'text', displayName: 'text' }, {
+  name: 'text_search_idx',
+  weights: {
+    ticketNo: 3,      // ให้น้ำหนักเลขที่คำร้องสูงสุด
+    subject: 2,       // หัวเรื่องรองลงมา
+    displayName: 1,   // ชื่อผู้ร้องน้ำหนักต่ำสุด
+  },
+});
 
 module.exports = mongoose.model('Ticket', ticketSchema);

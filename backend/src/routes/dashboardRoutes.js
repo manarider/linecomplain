@@ -8,13 +8,21 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { pushStatusUpdate } = require('../utils/lineNotify');
 const { TICKET_STATUS, UNRESTRICTED_ROLES, FULL_ACCESS_ROLES, DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
 const { logAction, actorFromUser } = require('../utils/auditLog');
+const { uploadsDir, cleanupFiles, getDateBasedPath } = require('../utils/fileHelper');
 
 const router = express.Router();
-
-// ── Multer สำหรับ completionImages (รูปผลการดำเนินงาน) ─────
-const uploadsDir = path.join(__dirname, '../../uploads');
 const completionStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
+  destination: (req, file, cb) => {
+    // สร้าง folder ตามวันที่
+    const datePath = getDateBasedPath();
+    const fullPath = path.join(uploadsDir, datePath);
+
+    if (!fs.existsSync(fullPath)) {
+      fs.mkdirSync(fullPath, { recursive: true });
+    }
+
+    cb(null, fullPath);
+  },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
     const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
@@ -72,18 +80,15 @@ router.get('/tickets', async (req, res) => {
       filter.assignedDepartment = department;
     }
     if (search) {
-      // escape special regex characters เพื่อป้องกัน ReDoS
-      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      filter.$or = [
-        { ticketNo: { $regex: escaped, $options: 'i' } },
-        { subject: { $regex: escaped, $options: 'i' } },
-        { displayName: { $regex: escaped, $options: 'i' } },
-      ];
+      const trimmed = search.trim();
+      // ใช้ text search index สำหรับประสิทธิภาพที่ดีกว่า regex
+      // Text search รองรับ full-text และ phrase search
+      filter.$text = { $search: trimmed };
     }
 
     const [tickets, total] = await Promise.all([
       Ticket.find(filter)
-        .sort({ createdAt: -1 })
+        .sort(search ? { score: { $meta: 'textScore' }, createdAt: -1 } : { createdAt: -1 })
         .skip(skip)
         .limit(safeLimit)
         .select('-history'), // ไม่ดึง history ในหน้ารายการ (ดึงตอนเปิด detail)
@@ -193,6 +198,9 @@ router.patch('/tickets/:id/status', async (req, res) => {
     const additionalInfoRequestText = typeof req.body.additionalInfoRequestText === 'string'
       ? req.body.additionalInfoRequestText.trim().slice(0, 1000)
       : '';
+    const newDepartment = typeof req.body.newDepartment === 'string'
+      ? req.body.newDepartment.trim()
+      : '';
 
     // ตรวจสอบว่า status ที่ส่งมาถูกต้อง
     if (!Object.values(TICKET_STATUS).includes(status)) {
@@ -212,6 +220,13 @@ router.patch('/tickets/:id/status', async (req, res) => {
       return res.status(403).json({ message: 'ไม่มีสิทธิ์แก้ไขเรื่องนี้' });
     }
 
+    // สถานะ เสร็จสิ้น / ไม่รับเรื่อง — เปลี่ยนได้เฉพาะ superadmin
+    const lockedStatuses = [TICKET_STATUS.COMPLETED, TICKET_STATUS.REJECTED];
+    if (lockedStatuses.includes(ticket.status) && req.user.role !== 'superadmin') {
+      if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+      return res.status(403).json({ message: 'เฉพาะ superadmin เท่านั้นที่สามารถเปลี่ยนสถานะจาก "เสร็จสิ้น" หรือ "ไม่รับเรื่อง" ได้' });
+    }
+
     const previousStatus = ticket.status;
     const previousDepartment = ticket.assignedDepartment;
 
@@ -220,24 +235,25 @@ router.patch('/tickets/:id/status', async (req, res) => {
     ticket.assignedToId = req.user.userId;
     ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
 
-    // ถ้ารับเรื่อง (เปลี่ยนเป็นระหว่างดำเนินการ) และหน่วยงานเป็น "ไม่แน่ใจ" 
-    // ให้เปลี่ยนหน่วยงานเป็นหน่วยงานของผู้รับเรื่อง
-    if (status === TICKET_STATUS.IN_PROGRESS && 
-        previousDepartment === 'ไม่แน่ใจ' && 
-        req.user.subDepartment) {
-      ticket.assignedDepartment = req.user.subDepartment;
+    // เปลี่ยนหน่วยงานถ้า newDepartment ถูกส่งมาและถูกต้อง (ไม่อนุญาต "ไม่แน่ใจ")
+    if (newDepartment && DEPARTMENTS.includes(newDepartment) && newDepartment !== 'ไม่แน่ใจ') {
+      ticket.assignedDepartment = newDepartment;
     }
 
     // บันทึกรูปผลการดำเนินงาน (เฉพาะสถานะเสร็จสิ้น)
     if (status === TICKET_STATUS.COMPLETED && req.files && req.files.length > 0) {
-      ticket.completionImages = req.files.map((f) => f.filename);
+      // เก็บ relative path เหมือนกับ ticket images (backward compatible)
+      ticket.completionImages = req.files.map((f) => {
+        const relativePath = path.relative(uploadsDir, f.path).replace(/\\/g, '/');
+        return relativePath;
+      });
     }
 
     // บันทึก history
-    const historyNote = 
-      status === TICKET_STATUS.IN_PROGRESS && previousDepartment === 'ไม่แน่ใจ' && ticket.assignedDepartment !== 'ไม่แน่ใจ'
-        ? `${note ? note + ' | ' : ''}เปลี่ยนหน่วยงานจาก "ไม่แน่ใจ" เป็น "${ticket.assignedDepartment}"`
-        : note || '';
+    const departmentChanged = ticket.assignedDepartment !== previousDepartment;
+    const historyNote = departmentChanged
+      ? `${note ? note + ' | ' : ''}เปลี่ยนหน่วยงานจาก "${previousDepartment}" เป็น "${ticket.assignedDepartment}"`
+      : note || '';
 
     ticket.history.push({
       status,
@@ -282,9 +298,8 @@ router.patch('/tickets/:id/status', async (req, res) => {
     });
 
     // ── Audit Log ──
-    const departmentChanged = previousDepartment === 'ไม่แน่ใจ' && ticket.assignedDepartment !== 'ไม่แน่ใจ';
     const auditDetail = departmentChanged
-      ? `เปลี่ยนสถานะ "${previousStatus}" → "${status}" และเปลี่ยนหน่วยงานจาก "ไม่แน่ใจ" เป็น "${ticket.assignedDepartment}"${note ? ` (หมายเหตุ: ${note})` : ''}`
+      ? `เปลี่ยนสถานะ "${previousStatus}" → "${status}" และเปลี่ยนหน่วยงานจาก "${previousDepartment}" เป็น "${ticket.assignedDepartment}"${note ? ` (หมายเหตุ: ${note})` : ''}`
       : `เปลี่ยนสถานะ "${previousStatus}" → "${status}"${note ? ` (หมายเหตุ: ${note})` : ''}`;
 
     logAction({
@@ -294,10 +309,10 @@ router.patch('/tickets/:id/status', async (req, res) => {
       targetId: ticket.ticketNo,
       targetLabel: ticket.subject,
       detail: auditDetail,
-      meta: { 
-        ticketId: req.params.id, 
-        previousStatus, 
-        newStatus: status, 
+      meta: {
+        ticketId: req.params.id,
+        previousStatus,
+        newStatus: status,
         note,
         requestAdditionalInfo,
         ...(requestAdditionalInfo ? { additionalInfoRequestText } : {}),
@@ -317,7 +332,7 @@ router.patch('/tickets/:id/status', async (req, res) => {
       });
     }
   } catch (err) {
-    if (req.files) req.files.forEach((f) => fs.unlink(f.path, () => {}));
+    cleanupFiles(req.files);
     console.error('updateStatus error:', err);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตสถานะ' });
   }
@@ -402,10 +417,10 @@ router.patch(
       await ticket.save();
 
       // แจ้งเตือนผู้แจ้ง - รวมหมายเหตุถ้ามี
-      const notificationMessage = note 
+      const notificationMessage = note
         ? `ส่งต่อไปยัง ${targetDepartment}\n📝 หมายเหตุ: ${note}`
         : `ส่งต่อไปยัง ${targetDepartment}`;
-      
+
       pushStatusUpdate(ticket, notificationMessage).catch((err) =>
         console.error('LINE push error:', err.message)
       );
@@ -589,6 +604,69 @@ router.get(
     } catch (err) {
       console.error('GET /dashboard/complainants/:lineUserId/tickets error:', err.message);
       res.status(500).json({ message: 'เกิดข้อผิดพลาด' });
+    }
+  }
+);
+
+// ============================================================
+// DELETE /api/dashboard/tickets/:id/completion-images
+// ลบรูปผลการดำเนินงานรูปเดียว (superadmin เท่านั้น)
+// Body: { filename: 'relative/path/to/file.jpg' }
+// ============================================================
+router.delete(
+  '/tickets/:id/completion-images',
+  requireRole('superadmin'),
+  async (req, res) => {
+    try {
+      const { filename } = req.body;
+      if (!filename || typeof filename !== 'string') {
+        return res.status(400).json({ message: 'กรุณาระบุชื่อไฟล์' });
+      }
+
+      // ป้องกัน path traversal ด้วย path.resolve (ปลอดภัยกว่า string replace)
+      const resolvedUploadsDir = path.resolve(uploadsDir);
+      const resolvedTarget = path.resolve(uploadsDir, filename);
+      if (!resolvedTarget.startsWith(resolvedUploadsDir + path.sep) &&
+          resolvedTarget !== resolvedUploadsDir) {
+        return res.status(400).json({ message: 'ชื่อไฟล์ไม่ถูกต้อง' });
+      }
+      // ใช้ relative path (แปลงกลับจาก absolute) เพื่อ match กับข้อมูลใน DB
+      const normalizedFilename = path.relative(uploadsDir, resolvedTarget).replace(/\\/g, '/');
+
+      const ticket = await Ticket.findById(req.params.id);
+      if (!ticket) return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });
+
+      if (!ticket.completionImages.includes(normalizedFilename)) {
+        return res.status(404).json({ message: 'ไม่พบรูปนี้ในคำร้อง' });
+      }
+
+      // ลบออกจาก DB ก่อน
+      ticket.completionImages = ticket.completionImages.filter(f => f !== normalizedFilename);
+      await ticket.save();
+
+      // ลบไฟล์จริง (ไม่ blocking)
+      const filePath = resolvedTarget;
+      fs.unlink(filePath, (err) => {
+        if (err && err.code !== 'ENOENT') {
+          console.error(`Failed to delete completion image ${filePath}:`, err.message);
+        }
+      });
+
+      // Audit Log
+      logAction({
+        ...actorFromUser(req),
+        action: 'DELETE_COMPLETION_IMAGE',
+        category: 'ticket',
+        targetId: ticket.ticketNo,
+        targetLabel: ticket.subject,
+        detail: `ลบรูปผลการดำเนินงาน: ${normalizedFilename}`,
+        meta: { ticketId: req.params.id, filename: normalizedFilename },
+      });
+
+      res.json({ message: 'ลบรูปสำเร็จ', filename: normalizedFilename });
+    } catch (err) {
+      console.error('deleteCompletionImage error:', err);
+      res.status(500).json({ message: 'เกิดข้อผิดพลาดในการลบรูป' });
     }
   }
 );

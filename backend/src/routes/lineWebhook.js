@@ -2,6 +2,7 @@ const express = require('express');
 const { middleware, messagingApi } = require('@line/bot-sdk');
 const LineGroup = require('../models/LineGroup');
 const Ticket = require('../models/Ticket');
+const Counter = require('../models/Counter');
 const { TICKET_STATUS } = require('../config/constants');
 
 const router = express.Router();
@@ -129,6 +130,32 @@ router.post('/', middleware(lineConfig), async (req, res) => {
   await Promise.allSettled(events.map(handleEvent));
 });
 
+// ── ฟังก์ชันอัพเดทจำนวนสมาชิกในกลุ่ม ─────────────────────
+const updateGroupMemberCount = async (groupId) => {
+  try {
+    // ใช้ endpoint โดยตรงเพื่อดึงจำนวนสมาชิก
+    const axios = require('axios');
+    const response = await axios.get(
+      `https://api.line.me/v2/bot/group/${groupId}/members/count`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}`
+        }
+      }
+    );
+    const memberCount = response.data.count || 0;
+    await LineGroup.findOneAndUpdate(
+      { groupId },
+      { memberCount },
+      { upsert: false }
+    );
+    return memberCount;
+  } catch (err) {
+    console.error(`[updateGroupMemberCount] Error for ${groupId}:`, err.message);
+    return 0;
+  }
+};
+
 // ── ประมวลผลแต่ละ Event ────────────────────────────────────
 const handleEvent = async (event) => {
   try {
@@ -136,17 +163,30 @@ const handleEvent = async (event) => {
     if (event.type === 'join' && event.source.type === 'group') {
       const groupId = event.source.groupId;
       let groupName = 'ไม่ทราบชื่อกลุ่ม';
+      let memberCount = 0;
       try {
         const summary = await client.getGroupSummary(groupId);
         groupName = summary.groupName || groupName;
+
+        // ดึงจำนวนสมาชิกจาก endpoint โดยตรง
+        const axios = require('axios');
+        const countResponse = await axios.get(
+          `https://api.line.me/v2/bot/group/${groupId}/members/count`,
+          {
+            headers: {
+              'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}`
+            }
+          }
+        );
+        memberCount = countResponse.data.count || 0;
       } catch (_) {}
 
       await LineGroup.findOneAndUpdate(
         { groupId },
-        { groupId, groupName, isActive: true, addedAt: new Date(), leftAt: null },
+        { groupId, groupName, memberCount, isActive: true, addedAt: new Date(), leftAt: null },
         { upsert: true, new: true }
       );
-      console.log(`[JOIN GROUP] ${groupId} — "${groupName}"`);
+      console.log(`[JOIN GROUP] ${groupId} — "${groupName}" (${memberCount} สมาชิก)`);
 
       await client.replyMessage({
         replyToken: event.replyToken,
@@ -178,6 +218,11 @@ const handleEvent = async (event) => {
 
     const text = event.message.text.trim();
     const replyToken = event.replyToken;
+
+    // ── อัพเดทจำนวนสมาชิกในกลุ่มทุกครั้งที่มีข้อความ ────────
+    if (event.source.type === 'group') {
+      await updateGroupMemberCount(event.source.groupId);
+    }
 
     // ── คำสั่ง "แจ้งเรื่อง" / "ร้องเรียน" ────────────────────
     // ฝัง groupId ใน LIFF URL ผ่าน query string เพื่อให้ ticketRoutes รับได้
@@ -295,6 +340,12 @@ const handleEvent = async (event) => {
             contents: singleBubble,
           }],
         });
+
+        // นับจำนวนครั้งที่ใช้คำสั่ง "ตามเรื่อง" ในกลุ่ม (สำหรับคำนวน quota)
+        const now = new Date();
+        const yymm = String(now.getFullYear()).slice(-2) + String(now.getMonth() + 1).padStart(2, '0');
+        const trackingKey = `tracking_${yymm}`;
+        Counter.nextSeq(trackingKey).catch(err => console.error('Counter tracking error:', err.message));
 
         // reply ในกลุ่มแจ้งว่าส่งให้แล้ว
         await client.replyMessage({

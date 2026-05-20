@@ -137,32 +137,43 @@ export default function QuotaPage({ showToast }) {
               icon="✅"
               label="ยืนยันรับเรื่อง (ส่วนตัว)"
               value={pushStats.confirmUser}
-              desc="pushTicketConfirm → lineUserId"
+              desc="ผู้แจ้งเรื่องใหม่ที่มี LINE ID"
             />
             <PushStatBox
-              icon="👥"
-              label="ยืนยันรับเรื่อง (กลุ่ม)"
-              value={pushStats.confirmGroup}
-              desc="pushTicketConfirm → groupId"
+              icon="📥"
+              label="แจ้งกลุ่ม admin เรื่องใหม่"
+              value={pushStats.adminNewTickets}
+              desc={`เรื่องใหม่ × ${pushStats.totalMembersInActiveGroups || 0} สมาชิก`}
             />
             <PushStatBox
               icon="🔔"
               label="แจ้งอัปเดตสถานะ"
               value={pushStats.statusUpdate}
-              desc="pushStatusUpdate → lineUserId"
+              desc="แจ้งผู้ร้องเมื่อสถานะเปลี่ยน"
             />
             <PushStatBox
               icon="📊"
-              label="สรุปประจำวัน (ประมาณการ)"
-              value={pushStats.eodSummary}
-              desc={`${pushStats.activeGroups} กลุ่ม × ${Math.round(pushStats.eodSummary / (pushStats.activeGroups || 1))} วัน`}
-              estimated
+              label="รวมยอดกลุ่ม admin"
+              value={pushStats.adminBatchAlert}
+              desc={`2 ครั้ง/วัน × ${new Date().getDate()} วัน`}
+            />
+            <PushStatBox
+              icon="📅"
+              label="สรุปประจำสัปดาห์"
+              value={pushStats.weeklySummary}
+              desc={`${pushStats.fridayCount || 0} ศุกร์ × ${pushStats.activeGroups} กลุ่ม`}
+            />
+            <PushStatBox
+              icon="🔍"
+              label={`คำสั่ง "ตามเรื่อง"`}
+              value={pushStats.trackingRequests}
+              desc="พิมพ์ในกลุ่ม → push ส่วนตัว"
             />
           </div>
           <div style={S.pushStatTotal}>
-            รวมโดยประมาณ: <strong>{pushStats.total?.toLocaleString()}</strong> ข้อความ
+            รวม: <strong>{pushStats.total?.toLocaleString()}</strong> ข้อความ
             <span style={{ fontSize: '0.73rem', color: '#94a3b8', marginLeft: 8 }}>
-              (นับจากฐานข้อมูล ไม่รวมการส่งอื่น ๆ นอกระบบ)
+              ({pushStats.note || 'คำนวนจากข้อมูลจริง'})
             </span>
           </div>
         </div>

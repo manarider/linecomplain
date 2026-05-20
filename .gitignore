@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Documentation (markdown files)
+*.md
+
 # Node
 node_modules/
 npm-debug.log*

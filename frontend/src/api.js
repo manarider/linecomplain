@@ -31,6 +31,7 @@ export const updateStatus = (id, body, files = []) => {
     if (body.note) fd.append('note', body.note);
     if (body.requestAdditionalInfo) fd.append('requestAdditionalInfo', 'true');
     if (body.additionalInfoRequestText) fd.append('additionalInfoRequestText', body.additionalInfoRequestText);
+    if (body.newDepartment) fd.append('newDepartment', body.newDepartment);
     files.forEach((f) => fd.append('completionImages', f));
     return fetch(`/api/dashboard/tickets/${id}/status`, {
       method: 'PATCH',
@@ -52,6 +53,11 @@ export const forwardTicket = (id, body) =>
   request(`/api/dashboard/tickets/${id}/forward`, { method: 'PATCH', body: JSON.stringify(body) });
 export const markAdditionalInfoRead = (id) =>
   request(`/api/dashboard/tickets/${id}/additional-info/read`, { method: 'PATCH' });
+export const deleteCompletionImage = (ticketId, filename) =>
+  request(`/api/dashboard/tickets/${ticketId}/completion-images`, {
+    method: 'DELETE',
+    body: JSON.stringify({ filename }),
+  });
 
 // ── LINE Groups ───────────────────────────────────────────
 export const getLineGroups  = ()   => request('/api/line-groups');
