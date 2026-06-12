@@ -15,6 +15,8 @@ const auditRoutes = require('./src/routes/auditRoutes');
 const statisticsRoutes = require('./src/routes/statisticsRoutes');
 const publicRoutes = require('./src/routes/publicRoutes');
 const backupRoutes = require('./src/routes/backupRoutes');
+const settingsRoutes = require('./src/routes/settingsRoutes');
+const satisfactionRoutes = require('./src/routes/satisfactionRoutes');
 const path = require('path');
 const fs = require('fs');
 
@@ -150,6 +152,12 @@ app.use('/api/backup', backupRoutes);
 
 // ── Routes: Statistics (ต้อง login + admin/executive/superadmin) ─────
 app.use('/api/statistics', statisticsRoutes);
+
+// ── Routes: System Settings (GET: all auth, PUT: superadmin) ──
+app.use('/api/settings', settingsRoutes);
+
+// ── Routes: Satisfaction (ต้อง login + superadmin/admin) ──
+app.use('/api/satisfaction', satisfactionRoutes);
 
 // ── Health Check ──────────────────────────────────────
 app.get('/health', (req, res) => {

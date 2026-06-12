@@ -7,23 +7,85 @@ const MONTH_NAMES = [
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
 ];
 
+const DEPT_PALETTE = [
+  '#1a5f9e','#16a34a','#d97706','#7c3aed','#dc2626',
+  '#0891b2','#65a30d','#c2410c','#6d28d9','#0f766e',
+  '#b45309','#be123c',
+];
+
+// ── Donut Chart (SVG) ─────────────────────────────────────────
+function DonutChart({ data, size = 260, emptyText = 'ไม่มีข้อมูล' }) {
+  const filtered = data.filter(d => d.total > 0);
+  const total = filtered.reduce((s, d) => s + d.total, 0);
+  if (total === 0) {
+    return <div style={{ textAlign: 'center', color: '#9ca3af', padding: 40 }}>{emptyText}</div>;
+  }
+  const r = 80;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const strokeWidth = 44;
+  const GAP = 2; // gap ระหว่าง slice (px)
+
+  let cumulative = 0;
+  const slices = filtered.map((d, i) => {
+    const dash = Math.max((d.total / total) * circumference - GAP, 0);
+    const startAngle = (cumulative / total) * 360 - 90;
+    cumulative += d.total;
+    return { ...d, dash, gap: circumference - dash, startAngle, color: DEPT_PALETTE[i % DEPT_PALETTE.length] };
+  });
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {slices.map((s, i) => (
+        <circle
+          key={i}
+          cx={cx} cy={cy} r={r}
+          fill="none"
+          stroke={s.color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${s.dash} ${circumference - s.dash}`}
+          transform={`rotate(${s.startAngle}, ${cx}, ${cy})`}
+        />
+      ))}
+      <text x={cx} y={cy - 8} textAnchor="middle" fontSize="28" fontWeight="bold" fill="#1e293b">{total}</text>
+      <text x={cx} y={cy + 16} textAnchor="middle" fontSize="13" fill="#64748b">เรื่องทั้งหมด</text>
+    </svg>
+  );
+}
+
 export default function StatisticsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [fiscalYear, setFiscalYear] = useState(new Date().getFullYear());
+  // selectedMonth: { year: YYYY, month: M } หรือ null (รอ availableMonths)
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [fiscalYear, setFiscalYear] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getStatistics({ year, fiscalYear });
+      const params = {};
+      if (fiscalYear) params.fiscalYear = fiscalYear;
+      if (selectedMonth) {
+        params.year  = selectedMonth.year;
+        params.month = selectedMonth.month;
+      }
+      const result = await getStatistics(params);
       setData(result);
+      // auto-select เดือนล่าสุดถ้ายังไม่ได้เลือก
+      if (!selectedMonth && result.availableMonths?.length > 0) {
+        setSelectedMonth({ year: result.availableMonths[0].year, month: result.availableMonths[0].month });
+      }
+      // auto-select ปีงบประมาณล่าสุดถ้ายังไม่ได้เลือก
+      if (!fiscalYear && result.availableFiscalYears?.length > 0) {
+        setFiscalYear(result.availableFiscalYears[0].fiscalYear);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [year, fiscalYear]);
+  }, [selectedMonth, fiscalYear]);
 
   useEffect(() => {
     fetchData();
@@ -52,8 +114,9 @@ export default function StatisticsPage() {
     XLSX.utils.book_append_sheet(wb, ws1, 'สรุปปีงบประมาณ');
 
     // ── Sheet 2: รายเดือน ───────────────────────────────────
+    const selYear = selectedMonth?.year || new Date().getFullYear();
     const monthlyData = [
-      ['สถิติรายเดือน ปี', year + 543],
+      [`สถิติรายเดือน ปี`, selYear + 543],
       [],
       ['เดือน', 'รวม', 'รอรับเรื่อง', 'ระหว่างดำเนินการ', 'เสร็จสิ้น', 'ไม่รับเรื่อง'],
       ...data.monthlyStats.map(m => [
@@ -124,7 +187,13 @@ export default function StatisticsPage() {
     );
   }
 
-  const maxMonthly = Math.max(...data.monthlyStats.map(m => m.total), 1);
+  const availableMonths = data?.availableMonths || [];
+  const availableFiscalYears = data?.availableFiscalYears || [];
+  const monthlyDeptStats = data?.monthlyDeptStats || [];
+  const fiscalDeptStats = data?.departmentStats || [];
+  const selectedLabel = selectedMonth
+    ? `${MONTH_NAMES[selectedMonth.month - 1]} ${selectedMonth.year + 543}`
+    : 'กำลังโหลด...';
 
   return (
     <div style={S.container}>
@@ -136,21 +205,37 @@ export default function StatisticsPage() {
         </button>
       </div>
 
-      {/* Year Selector */}
+      {/* Control Bar */}
       <div style={S.controlBar}>
         <div style={S.controlGroup}>
-          <label style={S.label}>ปีปฏิทิน (รายเดือน)</label>
-          <select style={S.select} value={year} onChange={e => setYear(parseInt(e.target.value))}>
-            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-              <option key={y} value={y}>{y + 543}</option>
+          <label style={S.label}>สถิติรายเดือน</label>
+          <select
+            style={S.select}
+            value={selectedMonth ? `${selectedMonth.year}-${selectedMonth.month}` : ''}
+            onChange={e => {
+              if (!e.target.value) return;
+              const [y, m] = e.target.value.split('-').map(Number);
+              setSelectedMonth({ year: y, month: m });
+            }}
+          >
+            {availableMonths.length === 0 && <option value="">ไม่มีข้อมูล</option>}
+            {availableMonths.map(am => (
+              <option key={`${am.year}-${am.month}`} value={`${am.year}-${am.month}`}>
+                {MONTH_NAMES[am.month - 1]} {am.year + 543}
+              </option>
             ))}
           </select>
         </div>
         <div style={S.controlGroup}>
           <label style={S.label}>ปีงบประมาณ (ต.ค. - ก.ย.)</label>
-          <select style={S.select} value={fiscalYear} onChange={e => setFiscalYear(parseInt(e.target.value))}>
-            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-              <option key={y} value={y}>{y + 543}</option>
+          <select
+            style={S.select}
+            value={fiscalYear || ''}
+            onChange={e => setFiscalYear(parseInt(e.target.value))}
+          >
+            {availableFiscalYears.length === 0 && <option value=''>ไม่มีข้อมูล</option>}
+            {availableFiscalYears.map(fy => (
+              <option key={fy.fiscalYear} value={fy.fiscalYear}>{fy.fiscalYear + 543}</option>
             ))}
           </select>
         </div>
@@ -171,45 +256,53 @@ export default function StatisticsPage() {
           <StatCard label="เสร็จสิ้น" value={data.fiscalStats.completed} color="#16a34a" />
           <StatCard label="ไม่รับเรื่อง" value={data.fiscalStats.rejected} color="#dc2626" />
         </div>
+        {/* Donut แยกหน่วยงาน (ปีงบประมาณ) */}
+        <div style={{ marginTop: 24 }}>
+          <div style={S.donutWrapper}>
+            <DonutChart data={fiscalDeptStats} size={260} emptyText="ไม่มีข้อมูลในปีงบประมาณนี้" />
+            <div style={S.donutLegend}>
+              {fiscalDeptStats.filter(d => d.total > 0).map((d, i) => {
+                const tot = fiscalDeptStats.reduce((s, x) => s + x.total, 0);
+                const pct = tot > 0 ? ((d.total / tot) * 100).toFixed(1) : '0.0';
+                return (
+                  <div key={d._id} style={S.donutLegendRow}>
+                    <span style={{ ...S.donutDot, background: DEPT_PALETTE[i % DEPT_PALETTE.length] }} />
+                    <span style={{ flex: 1, fontSize: 13, color: '#374151' }}>{d._id || '(ไม่ระบุ)'}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', minWidth: 36, textAlign: 'right' }}>{d.total}</span>
+                    <span style={{ fontSize: 12, color: '#9ca3af', minWidth: 48, textAlign: 'right' }}>{pct}%</span>
+                  </div>
+                );
+              })}
+              {fiscalDeptStats.filter(d => d.total > 0).length === 0 && (
+                <div style={{ color: '#9ca3af', fontSize: 14, paddingTop: 20 }}>ไม่มีข้อมูลในปีงบประมาณนี้</div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Monthly Chart */}
+      {/* Monthly Donut Chart */}
       <div style={S.section}>
-        <h3 style={S.sectionTitle}>📈 สถิติรายเดือน (ปีปฏิทิน {year + 543})</h3>
-        <div style={S.chartContainer}>
-          {data.monthlyStats.map(m => {
-            const heightPercent = maxMonthly > 0 ? (m.total / maxMonthly) * 100 : 0;
-            return (
-              <div key={m._id.month} style={S.chartBar}>
-                <div style={{ ...S.barStack, height: `${heightPercent}%` }}>
-                  <div
-                    style={{ flex: m.completed, background: '#16a34a' }}
-                    title={`เสร็จสิ้น ${m.completed}`}
-                  />
-                  <div
-                    style={{ flex: m.inProgress, background: '#2563eb' }}
-                    title={`ระหว่างดำเนินการ ${m.inProgress}`}
-                  />
-                  <div
-                    style={{ flex: m.pending, background: '#d97706' }}
-                    title={`รอรับเรื่อง ${m.pending}`}
-                  />
-                  <div
-                    style={{ flex: m.rejected, background: '#dc2626' }}
-                    title={`ไม่รับเรื่อง ${m.rejected}`}
-                  />
+        <h3 style={S.sectionTitle}>🍩 สถิติรายเดือน — {selectedLabel} แยกตามหน่วยงาน</h3>
+        <div style={S.donutWrapper}>
+          <DonutChart data={monthlyDeptStats} size={260} />
+          <div style={S.donutLegend}>
+            {monthlyDeptStats.filter(d => d.total > 0).map((d, i) => {
+              const total = monthlyDeptStats.reduce((s, x) => s + x.total, 0);
+              const pct = total > 0 ? ((d.total / total) * 100).toFixed(1) : '0.0';
+              return (
+                <div key={d._id} style={S.donutLegendRow}>
+                  <span style={{ ...S.donutDot, background: DEPT_PALETTE[i % DEPT_PALETTE.length] }} />
+                  <span style={{ flex: 1, fontSize: 13, color: '#374151' }}>{d._id || '(ไม่ระบุ)'}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', minWidth: 36, textAlign: 'right' }}>{d.total}</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af', minWidth: 48, textAlign: 'right' }}>{pct}%</span>
                 </div>
-                <div style={S.barLabel}>{m.total}</div>
-                <div style={S.barMonth}>{MONTH_NAMES[m._id.month - 1]}</div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={S.legend}>
-          <LegendItem color="#16a34a" label="เสร็จสิ้น" />
-          <LegendItem color="#2563eb" label="ระหว่างดำเนินการ" />
-          <LegendItem color="#d97706" label="รอรับเรื่อง" />
-          <LegendItem color="#dc2626" label="ไม่รับเรื่อง" />
+              );
+            })}
+            {monthlyDeptStats.filter(d => d.total > 0).length === 0 && (
+              <div style={{ color: '#9ca3af', fontSize: 14, paddingTop: 20 }}>ไม่มีข้อมูลในเดือนที่เลือก</div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -394,17 +487,34 @@ const S = {
     minHeight: 4,
     transition: 'height 0.3s ease',
   },
-  barLabel: {
-    fontSize: '0.85rem',
-    fontWeight: 700,
-    color: '#1e293b',
+  barLabel: { fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' },
+  barMonth: { fontSize: '0.75rem', color: '#64748b', textAlign: 'center', maxWidth: 60, lineHeight: 1.2 },
+  donutWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 32,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    padding: '8px 0',
   },
-  barMonth: {
-    fontSize: '0.75rem',
-    color: '#64748b',
-    textAlign: 'center',
-    maxWidth: 60,
-    lineHeight: 1.2,
+  donutLegend: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    minWidth: 200,
+    maxWidth: 360,
+    flex: 1,
+  },
+  donutLegendRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  donutDot: {
+    width: 12,
+    height: 12,
+    borderRadius: '50%',
+    flexShrink: 0,
   },
   legend: {
     display: 'flex',
@@ -419,11 +529,7 @@ const S = {
     fontSize: '0.85rem',
     color: '#555',
   },
-  legendColor: {
-    width: 16,
-    height: 16,
-    borderRadius: 3,
-  },
+  legendColor: { width: 16, height: 16, borderRadius: 3 },
   tableWrapper: {
     overflowX: 'auto',
   },

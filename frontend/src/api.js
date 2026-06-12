@@ -106,3 +106,11 @@ export const getStatistics = (params) => request(`/api/statistics?${new URLSearc
 // ── Public Statistics (ไม่ต้อง login) ─────────────────────
 export const getPublicFiscalSummary = (params) =>
   request(`/api/public/fiscal-summary?${new URLSearchParams(params)}`);
+
+// ── System Settings ──────────────────────────────────────
+export const getSettings    = ()       => request('/api/settings');
+export const updateSettings = (body)   => request('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+
+// ── Satisfaction (superadmin/admin) ──────────────────────
+export const getSatisfactionSummary = (params) =>
+  request(`/api/satisfaction/summary?${new URLSearchParams(params)}`);

@@ -213,6 +213,32 @@ const handleEvent = async (event) => {
       return;
     }
 
+    // ── Postback event: รับคะแนนความพึงพอใจ ──────────────────
+    if (event.type === 'postback') {
+      const params = new URLSearchParams(event.postback.data || '');
+      if (params.get('action') === 'satisfy') {
+        const ticketId = params.get('ticketId');
+        const score = parseInt(params.get('score'), 10);
+        if (ticketId && score >= 1 && score <= 5) {
+          const t = await Ticket.findById(ticketId);
+          if (t && !t.satisfactionReplied) {
+            t.satisfactionScore = score;
+            t.satisfactionAt = new Date();
+            t.satisfactionReplied = true;
+            await t.save();
+          }
+        }
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: 'ขอบคุณสำหรับการให้คะแนนความพึงพอใจในการรับบริการ เรื่องร้องเรียน/ร้องทุกข์ ครับ 🙏',
+          }],
+        });
+      }
+      return;
+    }
+
     // รับเฉพาะ message event ประเภท text
     if (event.type !== 'message' || event.message.type !== 'text') return;
 

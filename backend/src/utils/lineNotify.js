@@ -206,14 +206,45 @@ const pushStatusUpdate = async (ticket, note = '', options = {}) => {
 
   const footerContents = [...additionalInfoButton, ...imageFooterContents];
 
+  // ── เพิ่มส่วนประเมินความพึงพอใจต่อท้าย body (เฉพาะเสร็จสิ้น + ยังไม่เคยประเมิน) ──
+  const tid = ticket._id.toString();
+  if (isCompleted && !ticket.satisfactionReplied) {
+    bodyContents.push(
+      { type: 'separator', margin: 'lg' },
+      {
+        type: 'text',
+        text: '⭐ กรุณาให้คะแนนความพึงพอใจในการใช้บริการ',
+        size: 'sm', weight: 'bold', color: '#d97706', margin: 'lg', wrap: true,
+      },
+      {
+        type: 'text',
+        text: 'กดที่ปุ่มด้านล่างเพื่อบันทึกผลการประเมิน',
+        size: 'xs', color: '#9ca3af', margin: 'sm', wrap: true,
+      }
+    );
+    footerContents.push(
+      { type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'postback', label: '⭐ 1 ดาว — ควรปรับปรุง', data: `action=satisfy&ticketId=${tid}&score=1` } },
+      { type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'postback', label: '⭐⭐ 2 ดาว — พอใช้', data: `action=satisfy&ticketId=${tid}&score=2` } },
+      { type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'postback', label: '⭐⭐⭐ 3 ดาว — ปานกลาง', data: `action=satisfy&ticketId=${tid}&score=3` } },
+      { type: 'button', style: 'primary', height: 'sm', color: '#2563eb',
+        action: { type: 'postback', label: '⭐⭐⭐⭐ 4 ดาว — ดี', data: `action=satisfy&ticketId=${tid}&score=4` } },
+      { type: 'button', style: 'primary', height: 'sm', color: '#16a34a',
+        action: { type: 'postback', label: '⭐⭐⭐⭐⭐ 5 ดาว — ดีมาก', data: `action=satisfy&ticketId=${tid}&score=5` } }
+    );
+  }
+
   const message = {
     type: 'flex',
-    altText: `อัปเดตสถานะเรื่องร้องทุกข์ ${ticket.ticketNo}`,
+    altText: isCompleted
+      ? `✅ เสร็จสิ้น ${ticket.ticketNo} — กรุณาให้คะแนนความพึงพอใจ`
+      : `อัปเดตสถานะเรื่องร้องทุกข์ ${ticket.ticketNo}`,
     contents: {
       type: 'bubble',
       header: {
-        type: 'box',
-        layout: 'vertical',
+        type: 'box', layout: 'vertical',
         contents: [
           { type: 'text', text: '📋 อัปเดตสถานะคำร้อง', weight: 'bold', color: '#ffffff', size: 'md' },
         ],
@@ -221,18 +252,15 @@ const pushStatusUpdate = async (ticket, note = '', options = {}) => {
         paddingAll: '16px',
       },
       body: {
-        type: 'box',
-        layout: 'vertical',
+        type: 'box', layout: 'vertical',
         contents: bodyContents,
         paddingAll: '16px',
       },
       ...(footerContents.length ? {
         footer: {
-          type: 'box',
-          layout: 'vertical',
+          type: 'box', layout: 'vertical',
           contents: footerContents,
-          spacing: 'sm',
-          paddingAll: '12px',
+          spacing: 'sm', paddingAll: '12px',
         },
       } : {}),
     },

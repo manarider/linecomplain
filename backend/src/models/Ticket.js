@@ -29,6 +29,11 @@ const ticketSchema = new mongoose.Schema(
     // ── รูปยืนยันผลการดำเนินงาน (แนบตอนเปลี่ยนสถานะเสร็จสิ้น) ──
     completionImages: [{ type: String }],
 
+    // ── ประเมินความพึงพอใจ ─────────────────────────────────────
+    satisfactionScore:   { type: Number, min: 1, max: 5, default: null },
+    satisfactionAt:      { type: Date, default: null },
+    satisfactionReplied: { type: Boolean, default: false }, // ป้องกันการให้คะแนนซ้ำ
+
     // ── ข้อมูลเพิ่มเติมจากผู้ร้อง (ขอโดยเจ้าหน้าที่ผ่าน LIFF) ──
     additionalInfoRequests: [
       {

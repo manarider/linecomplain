@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getMe, doLogout, getSummary, getTickets, getQuotaCurrent } from '../api';
 import { TICKET_STATUS, STATUS_BADGE, FULL_ACCESS_ROLES, formatDate, DEPARTMENTS } from '../constants';
@@ -10,6 +10,8 @@ import AuditLogPage from './AuditLogPage';
 import StatisticsPage from './StatisticsPage';
 import LineUsersPage from './LineUsersPage';
 import BackupPage from './BackupPage';
+import SettingsPage from './SettingsPage';
+import SatisfactionPage from './SatisfactionPage';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -214,6 +216,18 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('public-fiscal'); setSidebarOpen(false); }}
             >🌐 หน้าสถิติสาธารณะ</div>
           )}
+          {user && (user.role === 'superadmin' || user.role === 'admin') && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'satisfaction' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('satisfaction'); setSidebarOpen(false); }}
+            >⭐ ประเมินความพึงพอใจ</div>
+          )}
+          {user && user.role === 'superadmin' && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'settings' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('settings'); setSidebarOpen(false); }}
+            >⚙️ ตั้งค่าระบบ</div>
+          )}
         </nav>
 
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
@@ -238,7 +252,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : activeMenu === 'public-fiscal' ? '🌐 หน้าสถิติสาธารณะ' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : activeMenu === 'public-fiscal' ? '🌐 หน้าสถิติสาธารณะ' : activeMenu === 'settings' ? '⚙️ ตั้งค่าระบบ' : activeMenu === 'satisfaction' ? '⭐ ประเมินความพึงพอใจ' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -269,6 +283,12 @@ export default function DashboardPage() {
           )}
           {activeMenu === 'backup' && (
             <BackupPage showToast={showToast} />
+          )}
+          {activeMenu === 'settings' && (
+            <SettingsPage showToast={showToast} />
+          )}
+          {activeMenu === 'satisfaction' && (
+            <SatisfactionPage showToast={showToast} />
           )}
           {activeMenu === 'line-users' && (
             <LineUsersPage showToast={showToast} />
@@ -345,8 +365,17 @@ export default function DashboardPage() {
                   const isOverdue = t.status === 'รอรับเรื่อง' &&
                     (Date.now() - new Date(t.createdAt).getTime()) > 24 * 60 * 60 * 1000;
                   const hasUnreadAdditionalInfo = t.additionalInfoRequests?.some((item) => item.respondedAt && !item.isRead);
+                  const SATISFACTION_ROW_COLOR = { 5: '#f0fdf4', 4: '#eff6ff', 3: '#fdf2f8', 2: '#fff7ed', 1: '#f9fafb' };
+                  const satisfactionBg = t.satisfactionReplied && t.satisfactionScore
+                    ? SATISFACTION_ROW_COLOR[t.satisfactionScore]
+                    : undefined;
                   return (
-                    <tr key={t._id} className={hasUnreadAdditionalInfo ? 'ticket-row-additional-unread' : ''} style={S.tableRow} onClick={() => setSelectedId(t._id)}>
+                    <tr
+                      key={t._id}
+                      className={hasUnreadAdditionalInfo ? 'ticket-row-additional-unread' : ''}
+                      style={{ ...S.tableRow, ...(satisfactionBg ? { backgroundColor: satisfactionBg } : {}) }}
+                      onClick={() => setSelectedId(t._id)}
+                    >
                       <td style={S.td}>
                         <strong className={isOverdue ? 'ticket-no-overdue' : ''}>
                           {t.ticketNo}
