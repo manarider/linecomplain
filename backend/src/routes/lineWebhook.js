@@ -1,22 +1,78 @@
 const express = require('express');
-const { middleware, messagingApi } = require('@line/bot-sdk');
+const crypto = require('crypto');
+const { messagingApi } = require('@line/bot-sdk');
 const LineGroup = require('../models/LineGroup');
 const Ticket = require('../models/Ticket');
 const Counter = require('../models/Counter');
 const { TICKET_STATUS } = require('../config/constants');
 
 const router = express.Router();
-
-// ── LINE Bot Config ────────────────────────────────────────
-const lineConfig = {
-  channelAccessToken: process.env.LINE_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-};
+const groupMemberCountCache = new Map();
+const GROUP_MEMBER_COUNT_TTL_MS = 10 * 60 * 1000;
 
 // @line/bot-sdk v11: ใช้ MessagingApiClient
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
 });
+
+const safeCompareBase64 = (actual, expected) => {
+  const actualBuffer = Buffer.from(actual || '');
+  const expectedBuffer = Buffer.from(expected || '');
+
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+};
+
+const verifyLineSignature = (rawBody, signature) => {
+  if (!process.env.LINE_CHANNEL_SECRET || !signature) {
+    return false;
+  }
+
+  const expected = crypto
+    .createHmac('SHA256', process.env.LINE_CHANNEL_SECRET)
+    .update(rawBody)
+    .digest('base64');
+
+  return safeCompareBase64(signature, expected);
+};
+
+const verifyGatewaySignature = (rawBody, signature, timestamp, gatewayName) => {
+  if (!process.env.GATEWAY_SECRET || !signature || !timestamp) {
+    return false;
+  }
+
+  if (gatewayName !== 'line-webhook-gateway') {
+    return false;
+  }
+
+  const requestTime = Number(timestamp);
+  if (!Number.isFinite(requestTime)) {
+    return false;
+  }
+
+  const fiveMinutesMs = 5 * 60 * 1000;
+  if (Math.abs(Date.now() - requestTime) > fiveMinutesMs) {
+    return false;
+  }
+
+  const expected = crypto
+    .createHmac('SHA256', process.env.GATEWAY_SECRET)
+    .update(rawBody)
+    .digest('base64');
+
+  return safeCompareBase64(signature, expected);
+};
+
+const normalizeWebhookEvents = (body, fromGateway) => {
+  if (fromGateway) {
+    return body && body.type ? [body] : [];
+  }
+
+  return Array.isArray(body.events) ? body.events : [];
+};
 
 // ── Flex Message: ปุ่มเปิด LIFF แจ้งเรื่อง ────────────────
 const createComplainFlexMessage = (liffUrl) => ({
@@ -119,20 +175,51 @@ const sendWelcomeMessage = async (replyToken, displayName) => {
 
 // ============================================================
 // POST /webhook
-// LINE Messaging API Webhook
+// LINE Messaging API Webhook / LINE Webhook Gateway
 // ============================================================
-router.post('/', middleware(lineConfig), async (req, res) => {
+router.post('/', express.raw({ type: 'application/json', limit: '2mb' }), async (req, res) => {
+  const rawBody = req.body;
+  const fromLineDirect = verifyLineSignature(rawBody, req.headers['x-line-signature']);
+  const fromGateway = verifyGatewaySignature(
+    rawBody,
+    req.headers['x-gateway-signature'],
+    req.headers['x-gateway-timestamp'],
+    req.headers['x-gateway-name']
+  );
+
+  if (!fromLineDirect && !fromGateway) {
+    return res.status(401).json({ message: 'Invalid webhook signature' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(rawBody.toString('utf8'));
+  } catch (_) {
+    return res.status(400).json({ message: 'Invalid JSON payload' });
+  }
+
   // ตอบ 200 ทันทีตามที่ LINE กำหนด
   res.status(200).json({ status: 'ok' });
 
   // ประมวลผล events แบบ async
-  const events = req.body.events;
-  await Promise.allSettled(events.map(handleEvent));
+  const events = normalizeWebhookEvents(body, fromGateway);
+  const results = await Promise.allSettled(events.map(handleEvent));
+  const failed = results.filter((result) => result.status === 'rejected');
+  if (failed.length > 0) {
+    console.error(`[Webhook] failed events ${failed.length}/${events.length}:`, failed.map((result) => result.reason?.message || String(result.reason)).join(' | '));
+  }
 });
 
 // ── ฟังก์ชันอัพเดทจำนวนสมาชิกในกลุ่ม ─────────────────────
 const updateGroupMemberCount = async (groupId) => {
   try {
+    const lastUpdatedAt = groupMemberCountCache.get(groupId) || 0;
+    if (Date.now() - lastUpdatedAt < GROUP_MEMBER_COUNT_TTL_MS) {
+      return null;
+    }
+
+    groupMemberCountCache.set(groupId, Date.now());
+
     // ใช้ endpoint โดยตรงเพื่อดึงจำนวนสมาชิก
     const axios = require('axios');
     const response = await axios.get(
@@ -151,6 +238,7 @@ const updateGroupMemberCount = async (groupId) => {
     );
     return memberCount;
   } catch (err) {
+    groupMemberCountCache.delete(groupId);
     console.error(`[updateGroupMemberCount] Error for ${groupId}:`, err.message);
     return 0;
   }
@@ -432,6 +520,7 @@ const handleEvent = async (event) => {
   } catch (err) {
     // LINE Bot SDK v11 ใช้ err.body (string) สำหรับ HTTP error
     console.error('LINE event handler error:', err.message, err.body || '');
+    throw err;
   }
 };
 

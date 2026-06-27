@@ -39,9 +39,18 @@ router.get('/download', async (req, res) => {
 
     for (let i = 0; i < collections.length; i++) {
       const collectionName = collections[i].name;
-      const docs = await db.collection(collectionName).find({}).toArray();
       const isLast = i === collections.length - 1;
-      res.write(`    ${JSON.stringify(collectionName)}: ${JSON.stringify(docs)}${isLast ? '' : ','}\n`);
+      res.write(`    ${JSON.stringify(collectionName)}: [`);
+
+      let isFirstDoc = true;
+      const cursor = db.collection(collectionName).find({});
+      for await (const doc of cursor) {
+        if (!isFirstDoc) res.write(',');
+        res.write(JSON.stringify(doc));
+        isFirstDoc = false;
+      }
+
+      res.write(`]${isLast ? '' : ','}\n`);
     }
 
     res.write('  }\n}');

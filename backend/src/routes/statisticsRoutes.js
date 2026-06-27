@@ -7,6 +7,20 @@ const { TICKET_STATUS } = require('../config/constants');
 // ── เฉพาะ admin, executive, superadmin เท่านั้น ───────────
 router.use(requireAuth, requireRole('admin', 'executive', 'staff', 'superadmin'));
 
+const parseYearParam = (value, fallback) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const rawYear = Number(value);
+  if (!Number.isInteger(rawYear)) return null;
+  const year = rawYear > 2400 ? rawYear - 543 : rawYear;
+  return year >= 2000 && year <= 2100 ? year : null;
+};
+
+const parseMonthParam = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const month = Number(value);
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : null;
+};
+
 // ── GET /api/statistics?year=YYYY&month=M&fiscalYear=YYYY ─────────
 // สรุปสถิติรายเดือนและรายปี
 router.get('/', async (req, res, next) => {
@@ -15,11 +29,17 @@ router.get('/', async (req, res, next) => {
     
     // default: ปีปัจจุบัน
     const currentYear = new Date().getFullYear();
-    const targetYear = year ? parseInt(year) : currentYear;
-    const targetMonth = month ? parseInt(month) : null;
+    const targetYear = parseYearParam(year, currentYear);
+    const targetMonth = parseMonthParam(month);
+    if (!targetYear || (month && !targetMonth)) {
+      return res.status(400).json({ message: 'ปีหรือเดือนไม่ถูกต้อง' });
+    }
     
     // ปีงบประมาณ: ตุลาคม (ปีก่อน) - กันยายน (ปีปัจจุบัน)
-    const targetFiscalYear = fiscalYear ? parseInt(fiscalYear) : currentYear;
+    const targetFiscalYear = parseYearParam(fiscalYear, currentYear);
+    if (!targetFiscalYear) {
+      return res.status(400).json({ message: 'ปีงบประมาณไม่ถูกต้อง' });
+    }
     const fiscalStart = new Date(targetFiscalYear - 1, 9, 1); // 1 ต.ค. ปีก่อน
     const fiscalEnd = new Date(targetFiscalYear, 8, 30, 23, 59, 59); // 30 ก.ย. ปีปัจจุบัน
 

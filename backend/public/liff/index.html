@@ -270,6 +270,23 @@
       line-height: 1.6;
       white-space: pre-wrap;
     }
+    .request-meta {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+      font-size: 0.85rem;
+      color: #4b5563;
+    }
+    .request-meta div {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .request-meta strong {
+      min-width: 76px;
+      color: #1f2937;
+      font-weight: 700;
+    }
 
     /* Char counter */
     .char-count { font-size: 0.75rem; color: #999; text-align: right; margin-top: 3px; }
@@ -315,9 +332,17 @@
     <div class="alert alert-error" id="alertError"></div>
 
     <div class="card" id="additionalInfoRequestCard" style="display:none;">
+      <div class="request-meta">
+        <div><strong>เลขคำร้อง</strong><span id="additionalTicketNo">-</span></div>
+        <div><strong>เรื่องเดิม</strong><span id="additionalTicketSubject">-</span></div>
+      </div>
+      <div class="form-group">
+        <label>รายละเอียดที่เจ้าหน้าที่ขอเพิ่มเติม</label>
+        <div class="request-box" id="additionalInfoRequestText">-</div>
+      </div>
       <div class="form-group" id="additionalNoteGroup" style="display:none;">
-        <label>หมายเหตุจากเจ้าหน้าที่</label>
-        <div class="request-box" id="additionalInfoRequestText"></div>
+        <label>หมายเหตุประกอบ</label>
+        <div class="request-box" id="additionalInfoNoteText"></div>
       </div>
       <div class="form-group" style="margin-bottom:0;">
         <label>ข้อมูลเพิ่มเติมของท่าน <span class="required">*</span></label>
@@ -468,9 +493,11 @@
       const res = await fetch(API_BASE + '/api/tickets/additional-info/' + encodeURIComponent(token));
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'ไม่พบคำขอข้อมูลเพิ่มเติม');
-      // แสดงหมายเหตุจากเจ้าหน้าที่ (ถ้ามี)
+      document.getElementById('additionalTicketNo').textContent = data.ticketNo || '-';
+      document.getElementById('additionalTicketSubject').textContent = data.subject || '-';
+      document.getElementById('additionalInfoRequestText').textContent = data.requestText || 'เจ้าหน้าที่ขอข้อมูลเพิ่มเติมสำหรับคำร้องนี้';
       if (data.note) {
-        document.getElementById('additionalInfoRequestText').textContent = data.note;
+        document.getElementById('additionalInfoNoteText').textContent = data.note;
         document.getElementById('additionalNoteGroup').style.display = 'block';
       }
       document.getElementById('additionalResponseText').value = '';

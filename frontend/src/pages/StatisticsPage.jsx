@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getStatistics } from '../api';
-import * as XLSX from 'xlsx';
 
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -27,11 +26,10 @@ function DonutChart({ data, size = 260, emptyText = 'ไม่มีข้อม
   const strokeWidth = 44;
   const GAP = 2; // gap ระหว่าง slice (px)
 
-  let cumulative = 0;
   const slices = filtered.map((d, i) => {
     const dash = Math.max((d.total / total) * circumference - GAP, 0);
-    const startAngle = (cumulative / total) * 360 - 90;
-    cumulative += d.total;
+      const previousTotal = filtered.slice(0, i).reduce((sum, item) => sum + item.total, 0);
+      const startAngle = (previousTotal / total) * 360 - 90;
     return { ...d, dash, gap: circumference - dash, startAngle, color: DEPT_PALETTE[i % DEPT_PALETTE.length] };
   });
 
@@ -91,11 +89,11 @@ export default function StatisticsPage() {
     fetchData();
   }, [fetchData]);
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     if (!data) return;
 
-    // สร้าง workbook
-    const wb = XLSX.utils.book_new();
+    const { default: writeXlsxFile } = await import('write-excel-file/browser');
+    const toSheetRows = (rows) => rows.map((row) => row.map((value) => ({ value })));
 
     // ── Sheet 1: สรุปปีงบประมาณ ───────────────────────────
     const fiscalData = [
@@ -109,9 +107,6 @@ export default function StatisticsPage() {
       ['เสร็จสิ้น', data.fiscalStats.completed],
       ['ไม่รับเรื่อง', data.fiscalStats.rejected],
     ];
-    const ws1 = XLSX.utils.aoa_to_sheet(fiscalData);
-    ws1['!cols'] = [{ wch: 25 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws1, 'สรุปปีงบประมาณ');
 
     // ── Sheet 2: รายเดือน ───────────────────────────────────
     const selYear = selectedMonth?.year || new Date().getFullYear();
@@ -136,9 +131,6 @@ export default function StatisticsPage() {
         data.monthlyStats.reduce((sum, m) => sum + m.rejected, 0),
       ],
     ];
-    const ws2 = XLSX.utils.aoa_to_sheet(monthlyData);
-    ws2['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, ws2, 'รายเดือน');
 
     // ── Sheet 3: ตามหน่วยงาน ────────────────────────────────
     const deptData = [
@@ -162,13 +154,15 @@ export default function StatisticsPage() {
         data.departmentStats.reduce((sum, d) => sum + d.rejected, 0),
       ],
     ];
-    const ws3 = XLSX.utils.aoa_to_sheet(deptData);
-    ws3['!cols'] = [{ wch: 30 }, { wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, ws3, 'ตามหน่วยงาน');
-
     // บันทึกไฟล์
     const fileName = `สถิติคำร้อง_${fiscalYear + 543}_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    await writeXlsxFile(
+      [toSheetRows(fiscalData), toSheetRows(monthlyData), toSheetRows(deptData)],
+      {
+        sheets: ['สรุปปีงบประมาณ', 'รายเดือน', 'ตามหน่วยงาน'],
+        fileName,
+      }
+    );
   };
 
   if (loading) {
