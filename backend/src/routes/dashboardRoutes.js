@@ -9,6 +9,9 @@ const { pushStatusUpdate } = require('../utils/lineNotify');
 const { TICKET_STATUS, UNRESTRICTED_ROLES, FULL_ACCESS_ROLES, DEPARTMENTS, SYSTEM_SETTINGS } = require('../config/constants');
 const { logAction, actorFromUser } = require('../utils/auditLog');
 const { uploadsDir, cleanupFiles, getDateBasedPath } = require('../utils/fileHelper');
+const { generateWspId } = require('../utils/wspId');
+
+const WSP_DEPARTMENT = 'สำนักการประปา';
 
 const router = express.Router();
 const completionStorage = multer.diskStorage({
@@ -71,7 +74,15 @@ router.get('/tickets', async (req, res) => {
     // แท็บอื่น (รอรับเรื่อง, เสร็จสิ้น, ไม่รับเรื่อง, ทั้งหมด) เห็นได้ทุกหน่วยงาน
     const isUnrestricted = UNRESTRICTED_ROLES.includes(req.user.role);
     if (!isUnrestricted && (status === TICKET_STATUS.IN_PROGRESS || status === TICKET_STATUS.FORWARDED)) {
-      filter.assignedDepartment = req.user.subDepartment;
+      // สำหรับสถานะ "ส่งต่อ" ให้เห็นได้ทั้งหน่วยงานปลายทาง และหน่วยงานที่ส่งต่อ
+      if (status === TICKET_STATUS.FORWARDED) {
+        filter.$or = [
+          { assignedDepartment: req.user.subDepartment },
+          { forwardedFromDepartment: req.user.subDepartment },
+        ];
+      } else {
+        filter.assignedDepartment = req.user.subDepartment;
+      }
     }
 
     // กรองเพิ่มเติมตาม query params
@@ -137,9 +148,13 @@ router.get('/tickets/summary', async (req, res) => {
         assignedDepartment: req.user.subDepartment,
         status: TICKET_STATUS.IN_PROGRESS,
       });
+      // นับคำร้องที่ส่งต่อ: ทั้งหน่วยงานปลายทางและหน่วยงานที่ส่งต่อ
       result[TICKET_STATUS.FORWARDED] = await Ticket.countDocuments({
-        assignedDepartment: req.user.subDepartment,
         status: TICKET_STATUS.FORWARDED,
+        $or: [
+          { assignedDepartment: req.user.subDepartment },
+          { forwardedFromDepartment: req.user.subDepartment },
+        ],
       });
     }
 
@@ -235,9 +250,20 @@ router.patch('/tickets/:id/status', async (req, res) => {
     ticket.assignedToId = req.user.userId;
     ticket.assignedToName = `${req.user.firstName} ${req.user.lastName}`;
 
+    // เคลียร์ forwardedFromDepartment เมื่อเปลี่ยนสถานะ (ไม่ใช่ส่งต่อแล้ว)
+    if (status !== TICKET_STATUS.FORWARDED) {
+      ticket.forwardedFromDepartment = null;
+    }
+
     // เปลี่ยนหน่วยงานถ้า newDepartment ถูกส่งมาและถูกต้อง (ไม่อนุญาต "ไม่แน่ใจ")
     if (newDepartment && DEPARTMENTS.includes(newDepartment) && newDepartment !== 'ไม่แน่ใจ') {
       ticket.assignedDepartment = newDepartment;
+    }
+
+    // WSP: เมื่อคำร้องเข้าสู่ความรับผิดชอบของสำนักการประปา ให้สร้างรหัสระบบประปาอัตโนมัติ
+    if (ticket.assignedDepartment === WSP_DEPARTMENT && !ticket.wspId) {
+      ticket.wspId = await generateWspId();
+      ticket.isWsp = true;
     }
 
     // บันทึกรูปผลการดำเนินงาน (เฉพาะสถานะเสร็จสิ้น)
@@ -247,6 +273,26 @@ router.patch('/tickets/:id/status', async (req, res) => {
         const relativePath = path.relative(uploadsDir, f.path).replace(/\\/g, '/');
         return relativePath;
       });
+    }
+
+    // WSP: กำหนดสถานะการเก็บงานพร้อมกับตอนกดเสร็จสิ้น (ไม่ต้องเลือกซ้ำอีกครั้ง)
+    if (ticket.assignedDepartment === WSP_DEPARTMENT && status === TICKET_STATUS.COMPLETED) {
+      const cleanup = (req.body.wspCleanupStatus || '').trim();
+      if (cleanup === 'COMPLETED') {
+        ticket.wspCleanupStatus = 'COMPLETED';
+        if (ticket.completionImages && ticket.completionImages.length > 0) {
+          ticket.wspCleanupImages = ticket.completionImages;
+        }
+      } else if (cleanup === 'WAITING') {
+        ticket.wspCleanupStatus = 'WAITING';
+        const days = Number(req.body.wspCleanupDueDays);
+        if (days >= 1) {
+          ticket.wspCleanupDueDays = days;
+          const dueDate = new Date();
+          dueDate.setDate(dueDate.getDate() + days);
+          ticket.wspCleanupDueDate = dueDate;
+        }
+      }
     }
 
     // บันทึก history
@@ -403,6 +449,7 @@ router.patch(
 
       // เปลี่ยนหน่วยงาน และตั้งสถานะเป็น "ส่งต่อ" เพื่อให้เห็นชัดว่าถูกส่งต่อ
       ticket.assignedDepartment = targetDepartment;
+      ticket.forwardedFromDepartment = previousDepartment; // บันทึกหน่วยงานที่ส่งต่อ
       ticket.status = TICKET_STATUS.FORWARDED;
       ticket.assignedToId = req.user.userId;
       ticket.assignedToName = forwarderName;

@@ -61,6 +61,12 @@ const ticketSchema = new mongoose.Schema(
       required: true,
     },
 
+    // ── หน่วยงานที่ส่งต่อ (ใช้เพื่อให้ผู้ส่งยังเห็นคำร้องที่ส่งต่อไป) ──
+    forwardedFromDepartment: {
+      type: String,
+      default: null,
+    },
+
     // ── สถานะ ──────────────────────────────────────────────
     status: {
       type: String,
@@ -88,6 +94,32 @@ const ticketSchema = new mongoose.Schema(
         updatedAt: { type: Date, default: Date.now },
       },
     ],
+
+    // ── ฟิลด์ WSP (สำนักการประปา) — optional ทั้งหมด ─────
+    // ฟิลด์เหล่านี้จะมีค่าเฉพาะเมื่อเป็น Ticket ของประปา
+    // Ticket เดิมไม่มีฟิลด์นี้ → Mongoose คืนค่า default โดยอัตโนมัติ
+    isWsp: { type: Boolean, default: false },
+    wspId: {
+      type: String,
+      default: null,
+      sparse: true, // index เฉพาะ doc ที่มีค่า (ไม่ null)
+    },
+    wspReason:         { type: String, default: null },  // ชื่อเหตุร้องทุกข์ (snapshot)
+    wspReasonOther:    { type: String, default: '' },    // รายละเอียดเมื่อเลือกเหตุ "อื่น ๆ"
+    wspAgency:         { type: String, default: null },  // ชื่อหน่วยรับผิดชอบ (snapshot)
+    wspCleanupStatus: {
+      type: String,
+      enum: ['NONE', 'WAITING', 'COMPLETED'],
+      default: 'NONE',
+    },
+    wspCleanupDueDays: { type: Number, default: null },
+    wspCleanupDueDate: { type: Date,   default: null },
+    wspCleanupImages:  [{ type: String }],
+    wspCreatedBy:      { type: String, default: null },  // userId staff ที่กรอกคำร้องเอง
+
+    // ── ช่องทางติดต่อผู้ร้อง (กรณีเจ้าหน้าที่กรอกคำร้องแทน) ──
+    email:                { type: String, default: '' },     // อีเมลผู้ร้อง (ไม่บังคับ)
+    wspNeedManualContact: { type: Boolean, default: false }, // true = ไม่มี LINE/email → ต้องแจ้งกลับช่องทางอื่น
   },
   {
     timestamps: true, // createdAt, updatedAt อัตโนมัติ
@@ -128,5 +160,9 @@ ticketSchema.index({ ticketNo: 'text', subject: 'text', displayName: 'text' }, {
     displayName: 1,   // ชื่อผู้ร้องน้ำหนักต่ำสุด
   },
 });
+
+// 🔍 WSP queries
+ticketSchema.index({ isWsp: 1, status: 1, createdAt: -1 });
+// หมายเหตุ: wspId มี sparse index อยู่แล้วในนิยาม field (sparse: true)
 
 module.exports = mongoose.model('Ticket', ticketSchema);

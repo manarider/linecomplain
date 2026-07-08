@@ -32,6 +32,8 @@ export const updateStatus = (id, body, files = []) => {
     if (body.requestAdditionalInfo) fd.append('requestAdditionalInfo', 'true');
     if (body.additionalInfoRequestText) fd.append('additionalInfoRequestText', body.additionalInfoRequestText);
     if (body.newDepartment) fd.append('newDepartment', body.newDepartment);
+    if (body.wspCleanupStatus) fd.append('wspCleanupStatus', body.wspCleanupStatus);
+    if (body.wspCleanupDueDays) fd.append('wspCleanupDueDays', String(body.wspCleanupDueDays));
     files.forEach((f) => fd.append('completionImages', f));
     return fetch(`/api/dashboard/tickets/${id}/status`, {
       method: 'PATCH',
@@ -114,3 +116,43 @@ export const updateSettings = (body)   => request('/api/settings', { method: 'PU
 // ── Satisfaction (superadmin/admin) ──────────────────────
 export const getSatisfactionSummary = (params) =>
   request(`/api/satisfaction/summary?${new URLSearchParams(params)}`);
+
+// ── WSP (สำนักการประปา) ───────────────────────────────────
+export const getWspReasons       = ()         => request('/api/wsp/reasons');
+export const createWspReason     = (body)     => request('/api/wsp/reasons', { method: 'POST', body: JSON.stringify(body) });
+export const updateWspReason     = (id, body) => request(`/api/wsp/reasons/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export const deleteWspReason     = (id)       => request(`/api/wsp/reasons/${id}`, { method: 'DELETE' });
+
+export const getWspAgencies      = ()         => request('/api/wsp/agencies');
+export const createWspAgency     = (body)     => request('/api/wsp/agencies', { method: 'POST', body: JSON.stringify(body) });
+export const updateWspAgency     = (id, body) => request(`/api/wsp/agencies/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export const updateWspAgencyMembers = (id, members) => request(`/api/wsp/agencies/${id}/members`, { method: 'PATCH', body: JSON.stringify({ members }) });
+export const deleteWspAgency     = (id)       => request(`/api/wsp/agencies/${id}`, { method: 'DELETE' });
+
+export const getWspTickets       = (params)   => request(`/api/wsp/tickets?${new URLSearchParams(params)}`);
+export const getWspTicket        = (id)       => request(`/api/wsp/tickets/${id}`);
+export const assignWspTicketAgency = (id, wspAgency) => request(`/api/wsp/tickets/${id}/agency`, { method: 'PATCH', body: JSON.stringify({ wspAgency }) });
+export const createWspTicket     = (body)     => request('/api/wsp/tickets', { method: 'POST', body: JSON.stringify(body) });
+export const verifyWspLineId     = (lineUserId) => request('/api/wsp/verify-line', { method: 'POST', body: JSON.stringify({ lineUserId }) });
+export const verifyWspEmail      = (email)      => request('/api/wsp/verify-email', { method: 'POST', body: JSON.stringify({ email }) });
+export const getWspStats         = (params)   => request(`/api/wsp/stats?${new URLSearchParams(params)}`);
+
+export const updateWspCleanup = (id, body, files = []) => {
+  const fd = new FormData();
+  fd.append('wspCleanupStatus', body.wspCleanupStatus);
+  if (body.wspCleanupDueDays) fd.append('wspCleanupDueDays', body.wspCleanupDueDays);
+  files.forEach((f) => fd.append('cleanupImages', f));
+  return fetch(`/api/wsp/tickets/${id}/cleanup`, {
+    method: 'PATCH',
+    credentials: 'include',
+    body: fd,
+  }).then(async (res) => {
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const err = new Error(data.message || 'เกิดข้อผิดพลาด');
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  });
+};

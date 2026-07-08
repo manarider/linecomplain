@@ -17,6 +17,7 @@ const publicRoutes = require('./src/routes/publicRoutes');
 const backupRoutes = require('./src/routes/backupRoutes');
 const settingsRoutes = require('./src/routes/settingsRoutes');
 const satisfactionRoutes = require('./src/routes/satisfactionRoutes');
+const wspRoutes = require('./src/routes/wspRoutes');
 const path = require('path');
 const fs = require('fs');
 
@@ -159,6 +160,9 @@ app.use('/api/settings', settingsRoutes);
 // ── Routes: Satisfaction (ต้อง login + superadmin/admin) ──
 app.use('/api/satisfaction', satisfactionRoutes);
 
+// ── Routes: WSP (สำนักการประปา) ─────────────────────────
+app.use('/api/wsp', wspRoutes);
+
 // ── Health Check ──────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -191,6 +195,24 @@ const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
   console.log(`🚀 Server เริ่มทำงานที่ port ${PORT}`);
   console.log(`🌐 Domain: ${process.env.DOMAIN}`);
+
+  // ── Webhook mode diagnostics ──────────────────────────────
+  const webhookMode = (process.env.WEBHOOK_MODE || 'both').toLowerCase();
+  const validModes = ['line', 'gateway', 'both'];
+  if (!validModes.includes(webhookMode)) {
+    console.warn(`⚠️  WEBHOOK_MODE="${webhookMode}" ไม่ถูกต้อง — ใช้ "both" แทน (ค่าที่รองรับ: line | gateway | both)`);
+  }
+  console.log(`📡 Webhook mode: ${webhookMode}`);
+  if (webhookMode === 'line' || webhookMode === 'both') {
+    const lineOk = !!process.env.LINE_CHANNEL_SECRET && !!process.env.LINE_ACCESS_TOKEN;
+    console.log(`   [LINE direct]  LINE_CHANNEL_SECRET: ${process.env.LINE_CHANNEL_SECRET ? '✅ set' : '❌ NOT SET'} | LINE_ACCESS_TOKEN: ${process.env.LINE_ACCESS_TOKEN ? '✅ set' : '❌ NOT SET'}`);
+    if (!lineOk) console.warn('   ⚠️  LINE direct mode เปิดอยู่แต่ขาด env vars — request จะถูก reject ทั้งหมด');
+  }
+  if (webhookMode === 'gateway' || webhookMode === 'both') {
+    const gatewayName = process.env.GATEWAY_NAME || 'line-webhook-gateway';
+    console.log(`   [Gateway]      GATEWAY_NAME: ${gatewayName} | GATEWAY_SECRET: ${process.env.GATEWAY_SECRET ? '✅ set' : '❌ NOT SET'}`);
+    if (!process.env.GATEWAY_SECRET) console.warn('   ⚠️  Gateway mode เปิดอยู่แต่ขาด GATEWAY_SECRET — request จะถูก reject ทั้งหมด');
+  }
 });
 
 // ── Scheduled LINE Notifications (node-cron) ───────────────

@@ -50,4 +50,29 @@ const requireRole = (...roles) => {
   };
 };
 
-module.exports = { requireAuth, requireRole };
+/**
+ * Middleware ตรวจสอบสิทธิ์เข้าถึง WSP Module (สำนักการประปา)
+ * อนุญาต:
+ *   - superadmin, admin  → ผ่านทันทีไม่ต้องตรวจ subDepartment
+ *   - executive, staff   → ผ่านเฉพาะเมื่อ subDepartment === 'สำนักการประปา'
+ * ปฏิเสธ:
+ *   - roles อื่น หรือ subDepartment ไม่ใช่ประปา → 403
+ */
+const requireWspAccess = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
+  }
+
+  const { role, subDepartment } = req.user;
+  const UNRESTRICTED = ['superadmin', 'admin'];
+  const FULL_ACCESS   = ['superadmin', 'admin', 'executive', 'staff'];
+
+  if (UNRESTRICTED.includes(role)) return next();
+  if (FULL_ACCESS.includes(role) && subDepartment === 'สำนักการประปา') return next();
+
+  return res.status(403).json({
+    message: 'ไม่มีสิทธิ์เข้าถึงระบบสำนักการประปา',
+  });
+};
+
+module.exports = { requireAuth, requireRole, requireWspAccess };

@@ -10,6 +10,22 @@ const router = express.Router();
 const groupMemberCountCache = new Map();
 const GROUP_MEMBER_COUNT_TTL_MS = 10 * 60 * 1000;
 
+// ── Idempotency: dedup events ด้วย webhookEventId (TTL 5 นาที) ────────────
+const processedEventIds = new Map();
+const EVENT_DEDUP_TTL_MS = 5 * 60 * 1000;
+
+const isDuplicateEvent = (eventId) => {
+  if (!eventId) return false;
+  const now = Date.now();
+  // ล้าง entry เก่าที่หมดอายุ
+  for (const [id, ts] of processedEventIds) {
+    if (now - ts > EVENT_DEDUP_TTL_MS) processedEventIds.delete(id);
+  }
+  if (processedEventIds.has(eventId)) return true;
+  processedEventIds.set(eventId, now);
+  return false;
+};
+
 // @line/bot-sdk v11: ใช้ MessagingApiClient
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
@@ -44,7 +60,8 @@ const verifyGatewaySignature = (rawBody, signature, timestamp, gatewayName) => {
     return false;
   }
 
-  if (gatewayName !== 'line-webhook-gateway') {
+  const expectedName = process.env.GATEWAY_NAME || 'line-webhook-gateway';
+  if (gatewayName !== expectedName) {
     return false;
   }
 
@@ -68,10 +85,48 @@ const verifyGatewaySignature = (rawBody, signature, timestamp, gatewayName) => {
 
 const normalizeWebhookEvents = (body, fromGateway) => {
   if (fromGateway) {
+    if (Array.isArray(body?.events)) return body.events;
     return body && body.type ? [body] : [];
   }
 
   return Array.isArray(body.events) ? body.events : [];
+};
+
+const updateGroupMemberCountInBackground = (groupId) => {
+  if (!groupId) return;
+
+  updateGroupMemberCount(groupId).catch((err) => {
+    console.error(`[updateGroupMemberCount] Background error for ${groupId}:`, err.message);
+  });
+};
+
+const getPushTargetFromEvent = (event) => {
+  if (event.source?.type === 'group') return event.source.groupId;
+  if (event.source?.type === 'room') return event.source.roomId;
+  return event.source?.userId || '';
+};
+
+const isInvalidReplyTokenError = (err) => {
+  const detail = [err?.message, err?.body].filter(Boolean).join(' ');
+  return detail.includes('Invalid reply token');
+};
+
+const sendReplyOrPushToSource = async (event, messages, contextLabel) => {
+  try {
+    await client.replyMessage({ replyToken: event.replyToken, messages });
+  } catch (err) {
+    if (!isInvalidReplyTokenError(err)) {
+      throw err;
+    }
+
+    const to = getPushTargetFromEvent(event);
+    if (!to) {
+      throw err;
+    }
+
+    console.warn(`[${contextLabel}] reply token invalid; fallback push to ${event.source?.type || 'unknown'}`);
+    await client.pushMessage({ to, messages });
+  }
 };
 
 // ── Flex Message: ปุ่มเปิด LIFF แจ้งเรื่อง ────────────────
@@ -161,16 +216,13 @@ const createCheckStatusFlexMessage = () => ({
 });
 
 // ── ฟังก์ชันส่ง Welcome Message ─────────────────────────────
-const sendWelcomeMessage = async (replyToken, displayName) => {
-  await client.replyMessage({
-    replyToken,
-    messages: [
-      {
-        type: 'text',
-        text: `สวัสดีครับ คุณ${displayName} 👋\nยินดีต้อนรับสู่ระบบรับเรื่องร้องทุกข์\n\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ`,
-      },
-    ],
-  });
+const sendWelcomeMessage = async (event, displayName) => {
+  await sendReplyOrPushToSource(event, [
+    {
+      type: 'text',
+      text: `สวัสดีครับ คุณ${displayName} 👋\nยินดีต้อนรับสู่ระบบรับเรื่องร้องทุกข์\n\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ`,
+    },
+  ], 'welcome');
 };
 
 // ============================================================
@@ -179,8 +231,17 @@ const sendWelcomeMessage = async (replyToken, displayName) => {
 // ============================================================
 router.post('/', express.raw({ type: 'application/json', limit: '2mb' }), async (req, res) => {
   const rawBody = req.body;
-  const fromLineDirect = verifyLineSignature(rawBody, req.headers['x-line-signature']);
-  const fromGateway = verifyGatewaySignature(
+  const _rawMode = (process.env.WEBHOOK_MODE || 'both').toLowerCase();
+  const _validModes = ['line', 'gateway', 'both'];
+  const mode = _validModes.includes(_rawMode) ? _rawMode : 'both';
+  if (!_validModes.includes(_rawMode)) {
+    console.warn(`[Webhook] WEBHOOK_MODE="${process.env.WEBHOOK_MODE}" ไม่ถูกต้อง — fallback เป็น "both"`);
+  }
+  const lineEnabled = mode === 'line' || mode === 'both';
+  const gatewayEnabled = mode === 'gateway' || mode === 'both';
+
+  const fromLineDirect = lineEnabled && verifyLineSignature(rawBody, req.headers['x-line-signature']);
+  const fromGateway = gatewayEnabled && verifyGatewaySignature(
     rawBody,
     req.headers['x-gateway-signature'],
     req.headers['x-gateway-timestamp'],
@@ -247,6 +308,12 @@ const updateGroupMemberCount = async (groupId) => {
 // ── ประมวลผลแต่ละ Event ────────────────────────────────────
 const handleEvent = async (event) => {
   try {
+    // ── Idempotency: ข้าม event ที่เคย process ไปแล้ว ──────
+    if (isDuplicateEvent(event.webhookEventId)) {
+      console.warn(`[Webhook] duplicate event skipped: ${event.webhookEventId}`);
+      return;
+    }
+
     // ── บอทถูก add เข้ากลุ่ม ──────────────────────────────
     if (event.type === 'join' && event.source.type === 'group') {
       const groupId = event.source.groupId;
@@ -276,10 +343,7 @@ const handleEvent = async (event) => {
       );
       console.log(`[JOIN GROUP] ${groupId} — "${groupName}" (${memberCount} สมาชิก)`);
 
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `สวัสดีครับ 👋 ระบบรับเรื่องร้องทุกข์พร้อมใช้งานแล้ว\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ` }],
-      });
+      await sendReplyOrPushToSource(event, [{ type: 'text', text: `สวัสดีครับ 👋 ระบบรับเรื่องร้องทุกข์พร้อมใช้งานแล้ว\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ` }], 'join');
       return;
     }
 
@@ -297,7 +361,7 @@ const handleEvent = async (event) => {
     // กรณีผู้ใช้ add friend (follow event)
     if (event.type === 'follow') {
       const profile = await client.getProfile(event.source.userId);
-      await sendWelcomeMessage(event.replyToken, profile.displayName);
+      await sendWelcomeMessage(event, profile.displayName);
       return;
     }
 
@@ -316,13 +380,10 @@ const handleEvent = async (event) => {
             await t.save();
           }
         }
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: 'ขอบคุณสำหรับการให้คะแนนความพึงพอใจในการรับบริการ เรื่องร้องเรียน/ร้องทุกข์ ครับ 🙏',
-          }],
-        });
+        await sendReplyOrPushToSource(event, [{
+          type: 'text',
+          text: 'ขอบคุณสำหรับการให้คะแนนความพึงพอใจในการรับบริการ เรื่องร้องเรียน/ร้องทุกข์ ครับ 🙏',
+        }], 'satisfaction');
       }
       return;
     }
@@ -330,27 +391,27 @@ const handleEvent = async (event) => {
     // รับเฉพาะ message event ประเภท text
     if (event.type !== 'message' || event.message.type !== 'text') return;
 
-    const text = event.message.text.trim();
+    // normalize: กำจัด zero-width chars ก่อน match คำสั่ง
+    const text = event.message.text.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim();
     const replyToken = event.replyToken;
+    const groupId = event.source.type === 'group' ? event.source.groupId : '';
 
-    // ── อัพเดทจำนวนสมาชิกในกลุ่มทุกครั้งที่มีข้อความ ────────
-    if (event.source.type === 'group') {
-      await updateGroupMemberCount(event.source.groupId);
-    }
+    // ── อัพเดทจำนวนสมาชิกในกลุ่มแบบ background ไม่หน่วง replyToken ────────
+    updateGroupMemberCountInBackground(groupId);
 
     // ── คำสั่ง "แจ้งเรื่อง" / "ร้องเรียน" ────────────────────
     // ฝัง groupId ใน LIFF URL ผ่าน query string เพื่อให้ ticketRoutes รับได้
     if (text === 'แจ้งเรื่อง' || text === 'ร้องเรียน') {
-      const gid = event.source.groupId || '';
+      const gid = groupId || '';
       const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}${gid ? '?gid=' + gid : ''}`;
       const flexMsg = createComplainFlexMessage(liffUrl);
-      await client.replyMessage({ replyToken, messages: [flexMsg] });
+      await sendReplyOrPushToSource(event, [flexMsg], 'แจ้งเรื่อง');
       return;
     }
 
     // ── คำสั่ง "ตรวจสอบสถานะ" ────────────────────────────
     if (text === 'ตรวจสอบสถานะ' || text === 'เช็คสถานะ') {
-      await client.replyMessage({ replyToken, messages: [createCheckStatusFlexMessage()] });
+      await sendReplyOrPushToSource(event, [createCheckStatusFlexMessage()], 'ตรวจสอบสถานะ');
       return;
     }
 
@@ -362,10 +423,7 @@ const handleEvent = async (event) => {
 
       // กรณี userId ไม่สามารถระบุได้ (เช่น privacy settings ของกลุ่ม)
       if (!userId) {
-        await client.replyMessage({
-          replyToken,
-          messages: [{ type: 'text', text: 'ไม่สามารถตรวจสอบได้ เนื่องจากไม่สามารถระบุตัวตนของคุณได้\nกรุณาส่งข้อความผ่านแชทส่วนตัวกับบอทครับ 🙏' }],
-        });
+        await sendReplyOrPushToSource(event, [{ type: 'text', text: 'ไม่สามารถตรวจสอบได้ เนื่องจากไม่สามารถระบุตัวตนของคุณได้\nกรุณาส่งข้อความผ่านแชทส่วนตัวกับบอทครับ 🙏' }], 'ตามเรื่อง');
         return;
       }
 
@@ -380,10 +438,7 @@ const handleEvent = async (event) => {
       console.log(`[ตามเรื่อง] พบ ${openTickets.length} รายการ`);
 
       if (!openTickets.length) {
-        await client.replyMessage({
-          replyToken,
-          messages: [{ type: 'text', text: 'ไม่มีเรื่องที่ค้างดำเนินการอยู่ครับ ✅' }],
-        });
+        await sendReplyOrPushToSource(event, [{ type: 'text', text: 'ไม่มีเรื่องที่ค้างดำเนินการอยู่ครับ ✅' }], 'ตามเรื่อง');
         return;
       }
 
@@ -434,8 +489,6 @@ const handleEvent = async (event) => {
         },
       };
 
-      const groupId = event.source.groupId;
-
       if (groupId) {
         // ── พิมพ์จากกลุ่ม: push ไปไลน์ส่วนตัว + reply ในกลุ่ม ──
         // ดึงชื่อผู้ใช้จากโปรไฟล์กลุ่ม
@@ -462,20 +515,14 @@ const handleEvent = async (event) => {
         Counter.nextSeq(trackingKey).catch(err => console.error('Counter tracking error:', err.message));
 
         // reply ในกลุ่มแจ้งว่าส่งให้แล้ว
-        await client.replyMessage({
-          replyToken,
-          messages: [{ type: 'text', text: `สวัสดีคุณ ${displayName} 👋\nได้ส่งรายการเรื่องที่ค้างดำเนินการให้ในไลน์ส่วนตัวแล้วครับ 📩` }],
-        });
+        await sendReplyOrPushToSource(event, [{ type: 'text', text: `สวัสดีคุณ ${displayName} 👋\nได้ส่งรายการเรื่องที่ค้างดำเนินการให้ในไลน์ส่วนตัวแล้วครับ 📩` }], 'ตามเรื่อง');
       } else {
         // ── พิมพ์จากแชทส่วนตัว: reply ปกติ ──
-        await client.replyMessage({
-          replyToken,
-          messages: [{
-            type: 'flex',
-            altText: `เรื่องที่ค้างดำเนินการ ${openTickets.length} รายการ`,
-            contents: singleBubble,
-          }],
-        });
+        await sendReplyOrPushToSource(event, [{
+          type: 'flex',
+          altText: `เรื่องที่ค้างดำเนินการ ${openTickets.length} รายการ`,
+          contents: singleBubble,
+        }], 'ตามเรื่อง');
       }
       return;
     }
@@ -491,27 +538,21 @@ const handleEvent = async (event) => {
       );
 
       if (!ticket) {
-        await client.replyMessage({
-          replyToken,
-          messages: [{ type: 'text', text: `ไม่พบเลขที่คำร้อง ${ticketNo} ในระบบครับ` }],
-        });
+        await sendReplyOrPushToSource(event, [{ type: 'text', text: `ไม่พบเลขที่คำร้อง ${ticketNo} ในระบบครับ` }], 'ตรวจเลขคำร้อง');
         return;
       }
 
-      await client.replyMessage({
-        replyToken,
-        messages: [
-          {
-            type: 'text',
-            text:
-              `📋 เลขที่คำร้อง: ${ticket.ticketNo}\n` +
-              `📌 หัวข้อ: ${ticket.subject}\n` +
-              `🏢 หน่วยงาน: ${ticket.assignedDepartment}\n` +
-              `📊 สถานะ: ${ticket.status}\n` +
-              `🗓️ วันที่แจ้ง: ${new Date(ticket.createdAt).toLocaleDateString('th-TH')}`,
-          },
-        ],
-      });
+      await sendReplyOrPushToSource(event, [
+        {
+          type: 'text',
+          text:
+            `📋 เลขที่คำร้อง: ${ticket.ticketNo}\n` +
+            `📌 หัวข้อ: ${ticket.subject}\n` +
+            `🏢 หน่วยงาน: ${ticket.assignedDepartment}\n` +
+            `📊 สถานะ: ${ticket.status}\n` +
+            `🗓️ วันที่แจ้ง: ${new Date(ticket.createdAt).toLocaleDateString('th-TH')}`,
+        },
+      ], 'ตรวจเลขคำร้อง');
       return;
     }
 

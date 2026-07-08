@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   getTicket, updateStatus, forwardTicket, markAdditionalInfoRead, deleteCompletionImage,
+  updateWspCleanup, getWspAgencies, assignWspTicketAgency,
 } from '../api';
 import {
   DEPARTMENTS, TICKET_STATUS, STATUS_BADGE, formatDate, FULL_ACCESS_ROLES,
@@ -154,6 +155,18 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
   const [completionPreviews, setCompletionPreviews] = useState([]);
   const [lightbox, setLightbox] = useState(null); // { images: [], index: 0 }
   const [deletingImage, setDeletingImage] = useState(null); // filename ที่กำลังลบ
+  // ── WSP: การเก็บงาน (เฉพาะสำนักการประปา) ──
+  const [cleanupMode, setCleanupMode] = useState('');       // 'WAITING' | 'COMPLETED'
+  const [cleanupDays, setCleanupDays] = useState('');
+  const [cleanupFiles, setCleanupFiles] = useState([]);
+  const [cleanupPreviews, setCleanupPreviews] = useState([]);
+  // ── WSP: การเก็บงานพร้อมตอนกดเสร็จสิ้น (ในฟอร์มดำเนินการ) ──
+  const [completeCleanupMode, setCompleteCleanupMode] = useState(''); // 'COMPLETED' | 'WAITING'
+  const [completeCleanupDays, setCompleteCleanupDays] = useState('');
+  // ── WSP: การจ่ายงาน (หน่วยรับผิดชอบ) ──
+  const [agencyList, setAgencyList] = useState([]);
+  const [assignAgency, setAssignAgency] = useState('');
+  const [savingAgency, setSavingAgency] = useState(false);
   const cameraRef = useRef(null);
   const galleryRef = useRef(null);
   const onUpdatedRef = useRef(onUpdated);
@@ -174,6 +187,13 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
         setTicket(data);
         // ตั้งค่า default หน่วยงานตามคำร้อง (ยกเว้น ไม่แน่ใจ บังคับให้เลือกใหม่)
         setActionDept(data.assignedDepartment !== 'ไม่แน่ใจ' ? data.assignedDepartment : '');
+        // WSP: โหลดรายชื่อหน่วยรับผิดชอบ + ตั้งค่าที่จ่ายงานอยู่
+        if (data.assignedDepartment === 'สำนักการประปา') {
+          setAssignAgency(data.wspAgency || '');
+          getWspAgencies()
+            .then((list) => setAgencyList(list.filter((a) => a.isActive)))
+            .catch(() => {});
+        }
         const hasUnreadAdditionalInfo = data.additionalInfoRequests?.some((item) => item.respondedAt && !item.isRead);
         if (hasUnreadAdditionalInfo) {
           markAdditionalInfoRead(ticketId)
@@ -192,6 +212,19 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
       showToast('กรุณาเลือกหน่วยงานที่รับผิดชอบก่อนบันทึกสถานะ', 'error');
       return;
     }
+    // WSP: ตอนกดเสร็จสิ้น ต้องเลือกสถานะการเก็บงานพร้อมกัน
+    const isWspCompletion = ticket.assignedDepartment === 'สำนักการประปา' && actionStatus === 'เสร็จสิ้น';
+    if (isWspCompletion) {
+      if (!completeCleanupMode) {
+        showToast('กรุณาเลือกสถานะการเก็บงาน (เก็บงานเสร็จสิ้น / รอเก็บงาน)', 'error'); return;
+      }
+      if (completeCleanupMode === 'COMPLETED' && completionFiles.length === 0) {
+        showToast('กรุณาแนบรูปผลงานอย่างน้อย 1 รูป เมื่อเก็บงานเสร็จสิ้น', 'error'); return;
+      }
+      if (completeCleanupMode === 'WAITING' && (!completeCleanupDays || Number(completeCleanupDays) < 1)) {
+        showToast('กรุณาระบุจำนวนวันรอเก็บงาน (อย่างน้อย 1 วัน)', 'error'); return;
+      }
+    }
     setSaving(true);
     try {
       const files = actionStatus === 'เสร็จสิ้น' ? completionFiles : [];
@@ -201,6 +234,9 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
         requestAdditionalInfo,
         // ส่ง newDepartment เฉพาะกรณีที่เปลี่ยนจากค่าเดิม
         ...(actionDept && actionDept !== ticket.assignedDepartment ? { newDepartment: actionDept } : {}),
+        // WSP: แนบสถานะการเก็บงานไปพร้อมกัน
+        ...(isWspCompletion ? { wspCleanupStatus: completeCleanupMode } : {}),
+        ...(isWspCompletion && completeCleanupMode === 'WAITING' ? { wspCleanupDueDays: completeCleanupDays } : {}),
       }, files);
       showToast(`อัปเดตสถานะ "${actionStatus}" สำเร็จ ✅`, 'success');
       onUpdated();
@@ -208,6 +244,19 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     } catch (err) {
       showToast(err.message, 'error');
     } finally { setSaving(false); }
+  };
+
+  // ── WSP: บันทึกการจ่ายงาน (หน่วยรับผิดชอบ) ──
+  const handleAssignAgency = async () => {
+    setSavingAgency(true);
+    try {
+      const fresh = await assignWspTicketAgency(ticketId, assignAgency);
+      setTicket(fresh);
+      showToast('บันทึกการจ่ายงานสำเร็จ ✅', 'success');
+      onUpdated();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally { setSavingAgency(false); }
   };
 
   const handleCompletionPhoto = async (e) => {
@@ -245,6 +294,46 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
     } finally {
       setDeletingImage(null);
     }
+  };
+
+  // ── WSP: เลือกรูปยืนยันการเก็บงาน ──
+  const handlePickCleanupFiles = async (e) => {
+    const raw = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!raw.length) return;
+    const compressed = await Promise.all(raw.map(compressImage));
+    setCleanupFiles(prev => [...prev, ...compressed]);
+    setCleanupPreviews(prev => [...prev, ...compressed.map(f => URL.createObjectURL(f))]);
+  };
+  const removeCleanupImage = (i) => {
+    setCleanupFiles(p => p.filter((_, j) => j !== i));
+    setCleanupPreviews(p => p.filter((_, j) => j !== i));
+  };
+
+  // ── WSP: บันทึกการเก็บงาน ──
+  const handleCleanupSubmit = async () => {
+    if (cleanupMode === 'WAITING' && (!cleanupDays || Number(cleanupDays) < 1)) {
+      showToast('กรุณาระบุจำนวนวันรอเก็บงาน (อย่างน้อย 1 วัน)', 'error'); return;
+    }
+    if (cleanupMode === 'COMPLETED' && cleanupFiles.length === 0) {
+      showToast('กรุณาแนบรูปยืนยันการเก็บงานอย่างน้อย 1 รูป', 'error'); return;
+    }
+    setSaving(true);
+    try {
+      await updateWspCleanup(
+        ticketId,
+        { wspCleanupStatus: cleanupMode, wspCleanupDueDays: cleanupDays },
+        cleanupFiles,
+      );
+      showToast(cleanupMode === 'COMPLETED' ? 'บันทึกการเก็บงานเสร็จสิ้น ✅' : 'ตั้งสถานะรอเก็บงานแล้ว ✅', 'success');
+      setCleanupMode(''); setCleanupDays('');
+      setCleanupFiles([]); setCleanupPreviews([]);
+      const fresh = await getTicket(ticketId);
+      setTicket(fresh);
+      onUpdated();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally { setSaving(false); }
   };
 
   const handleForward = async () => {
@@ -635,8 +724,15 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
       <div style={S.modal}>
         {/* Header */}
         <div style={S.modalHeader}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>
-            {ticket ? ticket.ticketNo : 'รายละเอียดคำร้อง'}
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            {ticket ? (
+              ticket.wspId ? (
+                <>
+                  <span style={{ color: '#1a5f9e', fontSize: '1.05rem' }}>💧 {ticket.wspId}</span>
+                  <span style={{ color: '#94a3b8', fontWeight: 500, fontSize: '0.8rem' }}>({ticket.ticketNo})</span>
+                </>
+              ) : ticket.ticketNo
+            ) : 'รายละเอียดคำร้อง'}
           </h3>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {ticket && (
@@ -804,6 +900,89 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
           </div>
         )}
 
+        {/* WSP: การจ่ายงาน — เลือก/เปลี่ยนหน่วยรับผิดชอบ (เฉพาะสำนักการประปา) */}
+        {!loading && ticket && canEdit && ticket.assignedDepartment === 'สำนักการประปา' && (
+          <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', marginTop: 8 }}>
+            <SectionTitle>🧰 การจ่ายงาน (หน่วยรับผิดชอบ)</SectionTitle>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select
+                style={{ ...S.input, marginBottom: 0, flex: 1 }}
+                value={assignAgency}
+                onChange={e => setAssignAgency(e.target.value)}
+              >
+                <option value="">-- ยังไม่จ่ายงาน --</option>
+                {agencyList.map(a => <option key={a._id} value={a.name}>{a.name}</option>)}
+              </select>
+              <button
+                style={{ ...S.btnUpdate, marginTop: 0, width: 'auto', padding: '0 18px', whiteSpace: 'nowrap' }}
+                disabled={savingAgency || assignAgency === (ticket.wspAgency || '')}
+                onClick={handleAssignAgency}
+              >💾 บันทึก</button>
+            </div>
+            <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#64748b' }}>
+              หน่วยที่รับผิดชอบปัจจุบัน: <strong>{ticket.wspAgency || 'ยังไม่ได้จ่ายงาน'}</strong>
+            </div>
+          </div>
+        )}
+
+        {/* WSP: การเก็บงาน — เฉพาะคำร้องสำนักการประปาที่เสร็จสิ้นแล้วแต่ยังไม่เก็บงาน */}
+        {!loading && ticket && canEdit && ticket.assignedDepartment === 'สำนักการประปา' &&
+          ticket.status === 'เสร็จสิ้น' && ticket.wspCleanupStatus !== 'COMPLETED' && (
+          <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', marginTop: 8 }}>
+            <SectionTitle>🧹 การเก็บงาน (สำนักการประปา)</SectionTitle>
+            {ticket.wspCleanupStatus === 'WAITING' && (
+              <div style={{ fontSize: '0.82rem', color: '#d97706', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontWeight: 600 }}>
+                ⏳ อยู่ระหว่างรอเก็บงาน{ticket.wspCleanupDueDate ? ` (ครบกำหนด ${new Date(ticket.wspCleanupDueDate).toLocaleDateString('th-TH')})` : ''}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button
+                type="button"
+                style={{ ...WS.toggle, ...(cleanupMode === 'COMPLETED' ? WS.toggleActive : {}) }}
+                onClick={() => setCleanupMode(cleanupMode === 'COMPLETED' ? '' : 'COMPLETED')}
+              >✅ เก็บงานเสร็จสิ้น</button>
+              <button
+                type="button"
+                style={{ ...WS.toggle, ...(cleanupMode === 'WAITING' ? WS.toggleActive : {}) }}
+                onClick={() => setCleanupMode(cleanupMode === 'WAITING' ? '' : 'WAITING')}
+              >⏳ รอเก็บงาน</button>
+            </div>
+
+            {cleanupMode === 'WAITING' && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>จำนวนวันที่ต้องเก็บงานให้เสร็จ</label>
+                <input type="number" min="1" value={cleanupDays} onChange={e => setCleanupDays(e.target.value)} placeholder="เช่น 7" style={{ ...S.input, width: 140, marginBottom: 0 }} />
+              </div>
+            )}
+
+            {cleanupMode === 'COMPLETED' && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: 6 }}>รูปยืนยันการเก็บงาน (บังคับ)</label>
+                <label style={S.photoBtn}>
+                  🖼️ เลือกรูปยืนยัน
+                  <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handlePickCleanupFiles} />
+                </label>
+                {cleanupPreviews.length > 0 && (
+                  <div style={S.imgGrid}>
+                    {cleanupPreviews.map((src, i) => (
+                      <div key={i} style={{ position: 'relative' }}>
+                        <img src={src} style={S.thumb} alt={`cleanup ${i}`} />
+                        <button style={S.removeThumb} onClick={() => removeCleanupImage(i)} title="ลบรูป">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {cleanupMode && (
+              <button style={S.btnUpdate} disabled={saving} onClick={handleCleanupSubmit}>
+                💾 บันทึกการเก็บงาน
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Action Form — ซ่อนเมื่อ เสร็จสิ้น หรือ ไม่รับเรื่อง ยกเว้น superadmin */}
         {!loading && ticket && (ticket.status !== 'เสร็จสิ้น' && ticket.status !== 'ไม่รับเรื่อง' || user?.role === 'superadmin') && canEdit && (
           <div style={S.actionForm}>
@@ -908,6 +1087,38 @@ export default function TicketModal({ ticketId, user, onClose, onUpdated }) {
               </div>
             )}
 
+            {/* WSP: เลือกสถานะการเก็บงานพร้อมตอนกดเสร็จสิ้น */}
+            {actionStatus === 'เสร็จสิ้น' && ticket.assignedDepartment === 'สำนักการประปา' && (
+              <div style={{ marginBottom: 10, padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#444', marginBottom: 8 }}>
+                  🧹 การเก็บงาน <span style={{ color: '#dc2626', fontWeight: 400 }}>* (เลือก 1 อย่าง)</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: completeCleanupMode === 'WAITING' ? 10 : 0 }}>
+                  <button
+                    type="button"
+                    style={{ ...WS.toggle, ...(completeCleanupMode === 'COMPLETED' ? WS.toggleActive : {}) }}
+                    onClick={() => setCompleteCleanupMode(completeCleanupMode === 'COMPLETED' ? '' : 'COMPLETED')}
+                  >✅ เก็บงานเสร็จสิ้น</button>
+                  <button
+                    type="button"
+                    style={{ ...WS.toggle, ...(completeCleanupMode === 'WAITING' ? WS.toggleActive : {}) }}
+                    onClick={() => setCompleteCleanupMode(completeCleanupMode === 'WAITING' ? '' : 'WAITING')}
+                  >⏳ รอเก็บงาน</button>
+                </div>
+                {completeCleanupMode === 'WAITING' && (
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>จำนวนวันที่ต้องเก็บงานให้เสร็จ</label>
+                    <input type="number" min="1" value={completeCleanupDays} onChange={e => setCompleteCleanupDays(e.target.value)} placeholder="เช่น 7" style={{ ...S.input, width: 140, marginBottom: 0 }} />
+                  </div>
+                )}
+                {completeCleanupMode === 'COMPLETED' && (
+                  <div style={{ marginTop: 8, fontSize: '0.76rem', color: '#166534' }}>
+                    * ใช้รูปผลการดำเนินงานด้านบนเป็นรูปยืนยันการเก็บงาน (ต้องมีอย่างน้อย 1 รูป)
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={S.actionBtns}>
               <button style={S.btnUpdate} disabled={saving} onClick={handleUpdateStatus}>
                 💾 บันทึกสถานะ
@@ -975,6 +1186,11 @@ function SectionTitle({ children }) {
 }
 
 // ── Styles ─────────────────────────────────────────────────
+const WS = {
+  toggle: { flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem', background: '#f8fafc', color: '#334155' },
+  toggleActive: { background: '#1a5f9e', color: '#fff', borderColor: '#1a5f9e' },
+};
+
 const S = {
   overlay: {
     position: 'fixed', inset: 0,
