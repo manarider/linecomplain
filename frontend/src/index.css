@@ -19,13 +19,14 @@ body {
 }
 
 /* ── Ticket overdue blink (รอรับเรื่อง > 1 วัน) ──────── */
-@keyframes blink-ticket-no {
-  0%, 100% { color: #d97706; opacity: 1; }
+@keyframes blink-overdue {
+  0%, 100% { color: #d97706; opacity: 1; font-weight: 700; }
   50%       { color: #dc2626; opacity: 0.25; }
 }
-.ticket-no-overdue {
-  animation: blink-ticket-no 1.2s ease-in-out infinite;
+.overdue-blink {
+  animation: blink-overdue 1.2s ease-in-out infinite;
   color: #d97706;
+  font-weight: 700;
 }
 
 @keyframes blink-additional-info {

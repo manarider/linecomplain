@@ -12,6 +12,7 @@ import LineUsersPage from './LineUsersPage';
 import BackupPage from './BackupPage';
 import SettingsPage from './SettingsPage';
 import SatisfactionPage from './SatisfactionPage';
+import WspPage from './WspPage';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -102,6 +103,10 @@ export default function DashboardPage() {
   };
 
   const isFullAccess = user && FULL_ACCESS_ROLES.includes(user.role);
+  const isWspUser = user && (
+    ['superadmin', 'admin'].includes(user.role) ||
+    (['executive', 'staff'].includes(user.role) && user.subDepartment === 'สำนักการประปา')
+  );
 
   return (
     <div style={S.layout}>
@@ -222,6 +227,12 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('satisfaction'); setSidebarOpen(false); }}
             >⭐ ประเมินความพึงพอใจ</div>
           )}
+          {isWspUser && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'wsp' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('wsp'); setSidebarOpen(false); }}
+            >💧 สำนักการประปา</div>
+          )}
           {user && user.role === 'superadmin' && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'settings' ? S.navItemActive : {}) }}
@@ -252,7 +263,7 @@ export default function DashboardPage() {
           {/* Title + Subtitle */}
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
-              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : activeMenu === 'public-fiscal' ? '🌐 หน้าสถิติสาธารณะ' : activeMenu === 'settings' ? '⚙️ ตั้งค่าระบบ' : activeMenu === 'satisfaction' ? '⭐ ประเมินความพึงพอใจ' : 'รายการเรื่องร้องทุกข์'}
+              {activeMenu === 'statistics' ? '📊 สถิติและรายงาน' : activeMenu === 'line-groups' ? '💬 จัดการกลุ่ม LINE' : activeMenu === 'complainants' ? '👥 สถิติผู้ร้อง' : activeMenu === 'quota' ? '📡 LINE Quota' : activeMenu === 'audit' ? '🗂️ Audit Log' : activeMenu === 'backup' ? '💾 Backup Database' : activeMenu === 'line-users' ? '📱 ผู้ใช้ LINE' : activeMenu === 'public-fiscal' ? '🌐 หน้าสถิติสาธารณะ' : activeMenu === 'settings' ? '⚙️ ตั้งค่าระบบ' : activeMenu === 'satisfaction' ? '⭐ ประเมินความพึงพอใจ' : activeMenu === 'wsp' ? '💧 ระบบจัดการคำร้องสำนักการประปา' : 'รายการเรื่องร้องทุกข์'}
             </h1>
             {activeMenu === 'tickets' && user?.subDepartment && (
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 2 }}>
@@ -289,6 +300,9 @@ export default function DashboardPage() {
           )}
           {activeMenu === 'satisfaction' && (
             <SatisfactionPage showToast={showToast} />
+          )}
+          {activeMenu === 'wsp' && isWspUser && (
+            <WspPage user={user} showToast={showToast} />
           )}
           {activeMenu === 'line-users' && (
             <LineUsersPage showToast={showToast} />
@@ -348,10 +362,10 @@ export default function DashboardPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <Th>เลขที่คำร้อง</Th>
+                  <Th hide>เลขที่คำร้อง</Th>
                   <Th>หัวข้อ</Th>
-                  <Th hide>หน่วยงาน</Th>
-                  <Th hide>วันที่แจ้ง</Th>
+                  <Th>หน่วยงาน</Th>
+                  <Th>วันที่แจ้ง</Th>
                   <Th>สถานะ</Th>
                 </tr>
               </thead>
@@ -376,15 +390,15 @@ export default function DashboardPage() {
                       style={{ ...S.tableRow, ...(satisfactionBg ? { backgroundColor: satisfactionBg } : {}) }}
                       onClick={() => setSelectedId(t._id)}
                     >
-                      <td style={S.td}>
-                        <strong className={isOverdue ? 'ticket-no-overdue' : ''}>
+                      <td style={{ ...S.td, display: window.innerWidth < 768 ? 'none' : undefined }}>
+                        <strong>
                           {t.ticketNo}
                         </strong>
                         {hasUnreadAdditionalInfo && <span style={S.additionalInfoBadge}>ข้อมูลใหม่</span>}
                       </td>
                       <td style={S.td}>{t.subject}</td>
-                      <td style={{ ...S.td, fontSize: '0.8rem', display: window.innerWidth < 768 ? 'none' : undefined }}>{t.assignedDepartment}</td>
-                      <td style={{ ...S.td, fontSize: '0.8rem', display: window.innerWidth < 768 ? 'none' : undefined }}>{formatDate(t.createdAt)}</td>
+                      <td style={{ ...S.td, fontSize: '0.8rem' }}>{t.assignedDepartment}</td>
+                      <td style={{ ...S.td, fontSize: '0.8rem' }} className={isOverdue ? 'overdue-blink' : ''}>{formatDate(t.createdAt)}</td>
                       <td style={S.td}>
                         <span className={`status-badge ${b?.cls}`}>{b?.label || t.status}</span>
                       </td>
