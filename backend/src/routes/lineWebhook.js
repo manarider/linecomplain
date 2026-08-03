@@ -220,7 +220,7 @@ const sendWelcomeMessage = async (event, displayName) => {
   await sendReplyOrPushToSource(event, [
     {
       type: 'text',
-      text: `สวัสดีครับ คุณ${displayName} 👋\nยินดีต้อนรับสู่ระบบรับเรื่องร้องทุกข์\n\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ`,
+      text: `สวัสดีครับ คุณ${displayName} 👋\nยินดีต้อนรับสู่ระบบรับเรื่องร้องทุกข์\n\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะ\nพิมพ์ "id" เพื่อดู User ID ของคุณครับ`,
     },
   ], 'welcome');
 };
@@ -343,7 +343,7 @@ const handleEvent = async (event) => {
       );
       console.log(`[JOIN GROUP] ${groupId} — "${groupName}" (${memberCount} สมาชิก)`);
 
-      await sendReplyOrPushToSource(event, [{ type: 'text', text: `สวัสดีครับ 👋 ระบบรับเรื่องร้องทุกข์พร้อมใช้งานแล้ว\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะครับ` }], 'join');
+      await sendReplyOrPushToSource(event, [{ type: 'text', text: `สวัสดีครับ 👋 ระบบรับเรื่องร้องทุกข์พร้อมใช้งานแล้ว\nพิมพ์ "แจ้งเรื่อง" เพื่อเปิดฟอร์มแจ้งเรื่อง\nพิมพ์ "ตามเรื่อง" เพื่อติดตามสถานะ\nพิมพ์ "id" เพื่อดู User ID ของคุณครับ` }], 'join');
       return;
     }
 
@@ -524,6 +524,28 @@ const handleEvent = async (event) => {
           contents: singleBubble,
         }], 'ตามเรื่อง');
       }
+      return;
+    }
+
+    // ── คำสั่ง "id" (เฉพาะแชทส่วนตัว) ─────────────────────
+    if (text.toLowerCase() === 'id') {
+      console.log(`[id command] text="${text}", source.type=${event.source?.type}`);
+      
+      // ตรวจสอบว่าเป็นแชทส่วนตัวเท่านั้น (ไม่ใช่กลุ่ม)
+      if (event.source?.type === 'group' || event.source?.type === 'room') {
+        await sendReplyOrPushToSource(event, [{ type: 'text', text: 'คำสั่ง "id" ใช้งานได้เฉพาะในแชทส่วนตัวเท่านั้นครับ 🙏\nกรุณาส่งข้อความมาที่แชทส่วนตัวกับบอทครับ' }], 'id');
+        return;
+      }
+
+      const userId = event.source.userId;
+      console.log(`[id command] userId=${userId}`);
+      
+      if (!userId) {
+        await sendReplyOrPushToSource(event, [{ type: 'text', text: 'ไม่สามารถระบุ User ID ได้\nกรุณาลองใหม่อีกครั้งครับ 🙏' }], 'id');
+        return;
+      }
+
+      await sendReplyOrPushToSource(event, [{ type: 'text', text: `🆔 User ID ของคุณคือ:\n${userId}` }], 'id');
       return;
     }
 
