@@ -3,8 +3,8 @@ const router = express.Router();
 const Ticket = require('../models/Ticket');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 
-// ทุก route ต้อง login + superadmin หรือ admin เท่านั้น
-router.use(requireAuth, requireRole('superadmin', 'admin'));
+// ทุก route ต้อง login + superadmin/admin หรือ visiter (อ่านอย่างเดียว)
+router.use(requireAuth, requireRole('superadmin', 'admin', 'visiter'));
 
 // ============================================================
 // GET /api/satisfaction/summary

@@ -190,7 +190,7 @@ router.get('/tickets/:id', async (req, res) => {
 // อัปเดตสถานะ + แจ้งเตือนผู้แจ้งผ่าน LINE
 // Body: { status, note } หรือ multipart/form-data (พร้อมรูป completionImages)
 // ============================================================
-router.patch('/tickets/:id/status', async (req, res) => {
+router.patch('/tickets/:id/status', requireRole('superadmin', 'admin', 'executive', 'staff'), async (req, res) => {
   // ── รับ multipart (รูปผลงาน) ถ้ามี ──────────────────────
   if (req.is('multipart/form-data')) {
     try {
@@ -388,7 +388,7 @@ router.patch('/tickets/:id/status', async (req, res) => {
 // PATCH /api/dashboard/tickets/:id/additional-info/read
 // ทำเครื่องหมายว่าข้อมูลเพิ่มเติมที่ผู้ร้องส่งกลับมา เจ้าหน้าที่เปิดดูแล้ว
 // ============================================================
-router.patch('/tickets/:id/additional-info/read', async (req, res) => {
+router.patch('/tickets/:id/additional-info/read', requireRole('superadmin', 'admin', 'executive', 'staff'), async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ message: 'ไม่พบเรื่องร้องทุกข์นี้' });

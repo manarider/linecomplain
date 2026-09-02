@@ -54,6 +54,7 @@ const requireRole = (...roles) => {
  * Middleware ตรวจสอบสิทธิ์เข้าถึง WSP Module (สำนักการประปา)
  * อนุญาต:
  *   - superadmin, admin  → ผ่านทันทีไม่ต้องตรวจ subDepartment
+ *   - visiter            → ผ่านแบบอ่านอย่างเดียว
  *   - executive, staff   → ผ่านเฉพาะเมื่อ subDepartment === 'สำนักการประปา'
  * ปฏิเสธ:
  *   - roles อื่น หรือ subDepartment ไม่ใช่ประปา → 403
@@ -65,9 +66,11 @@ const requireWspAccess = (req, res, next) => {
 
   const { role, subDepartment } = req.user;
   const UNRESTRICTED = ['superadmin', 'admin'];
+  const READ_ONLY = ['visiter'];
   const FULL_ACCESS   = ['superadmin', 'admin', 'executive', 'staff'];
 
   if (UNRESTRICTED.includes(role)) return next();
+  if (READ_ONLY.includes(role)) return next();
   if (FULL_ACCESS.includes(role) && subDepartment === 'สำนักการประปา') return next();
 
   return res.status(403).json({

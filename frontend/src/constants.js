@@ -26,6 +26,7 @@ export const TICKET_STATUS = {
 };
 
 export const FULL_ACCESS_ROLES = ['superadmin', 'admin', 'executive', 'staff'];
+export const READ_ONLY_ROLES = ['visiter'];
 
 export const STATUS_BADGE = {
   'รอรับเรื่อง':       { label: '⏳ รอรับเรื่อง',    cls: 'badge-pending'    },

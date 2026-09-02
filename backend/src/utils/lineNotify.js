@@ -1,5 +1,6 @@
 const { messagingApi } = require('@line/bot-sdk');
 const { TICKET_STATUS } = require('../config/constants');
+const LineGroup = require('../models/LineGroup');
 const Ticket = require('../models/Ticket');
 
 const lineClient = new messagingApi.MessagingApiClient({
@@ -19,6 +20,62 @@ const getSystemUrl = () => {
   const domain = (process.env.DOMAIN || '').replace(/\/$/, '');
   return domain ? `${domain}/dashboard` : '';
 };
+
+const createComplaintEntryFlexMessage = (liffUrl) => ({
+  type: 'flex',
+  altText: 'กดปุ่มด้านล่างเพื่อแจ้งเรื่อง',
+  contents: {
+    type: 'bubble',
+    size: 'mega',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: '📋 ระบบรับแจ้งเรื่อง',
+          weight: 'bold',
+          size: 'xl',
+          color: '#ffffff',
+        },
+      ],
+      backgroundColor: '#1a5f9e',
+      paddingAll: '20px',
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: 'กรอกแบบฟอร์มแจ้งเรื่องผ่านระบบออนไลน์ได้เลยครับ',
+          wrap: true,
+          size: 'sm',
+          color: '#555555',
+        },
+      ],
+      paddingAll: '20px',
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          height: 'sm',
+          action: {
+            type: 'uri',
+            label: '📝 เข้าสู่ระบบแจ้งเรื่อง',
+            uri: liffUrl || `https://liff.line.me/${process.env.LIFF_ID}`,
+          },
+          color: '#1a5f9e',
+        },
+      ],
+      paddingAll: '15px',
+    },
+  },
+});
 
 const formatTicketDateTime = (date) => {
   const ticketDate = date ? new Date(date) : new Date();
@@ -46,16 +103,16 @@ const pushAdminNewTicketAlert = async (ticket) => {
 
   const footerContents = systemUrl
     ? [{
-        type: 'button',
-        style: 'primary',
-        height: 'sm',
-        color: '#1a5f9e',
-        action: {
-          type: 'uri',
-          label: 'เปิดระบบหลังบ้าน',
-          uri: systemUrl,
-        },
-      }]
+      type: 'button',
+      style: 'primary',
+      height: 'sm',
+      color: '#1a5f9e',
+      action: {
+        type: 'uri',
+        label: 'เปิดระบบหลังบ้าน',
+        uri: systemUrl,
+      },
+    }]
     : [];
 
   const message = {
@@ -80,18 +137,24 @@ const pushAdminNewTicketAlert = async (ticket) => {
         contents: [
           { type: 'text', text: ticket.subject, weight: 'bold', size: 'xl', color: '#111827', wrap: true },
           { type: 'separator', margin: 'md' },
-          { type: 'box', layout: 'horizontal', margin: 'md', contents: [
-            { type: 'text', text: 'วันที่', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: date, size: 'sm', color: '#111827', flex: 4, wrap: true },
-          ]},
-          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
-            { type: 'text', text: 'เวลา', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: `${time} น.`, size: 'sm', color: '#111827', flex: 4, weight: 'bold' },
-          ]},
-          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
-            { type: 'text', text: 'หน่วยงาน', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: ticket.assignedDepartment || '-', size: 'sm', color: '#111827', flex: 4, wrap: true },
-          ]},
+          {
+            type: 'box', layout: 'horizontal', margin: 'md', contents: [
+              { type: 'text', text: 'วันที่', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: date, size: 'sm', color: '#111827', flex: 4, wrap: true },
+            ]
+          },
+          {
+            type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+              { type: 'text', text: 'เวลา', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: `${time} น.`, size: 'sm', color: '#111827', flex: 4, weight: 'bold' },
+            ]
+          },
+          {
+            type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+              { type: 'text', text: 'หน่วยงาน', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: ticket.assignedDepartment || '-', size: 'sm', color: '#111827', flex: 4, wrap: true },
+            ]
+          },
         ],
       },
       ...(footerContents.length ? {
@@ -172,29 +235,29 @@ const pushStatusUpdate = async (ticket, note = '', options = {}) => {
 
   const additionalInfoButton = options.additionalInfoUrl
     ? [{
-        type: 'button', style: 'primary', height: 'sm',
-        color: '#7c3aed',
-        action: {
-          type: 'uri',
-          label: 'กรอกข้อมูลเพิ่มเติม',
-          uri: options.additionalInfoUrl,
-        },
-      }]
+      type: 'button', style: 'primary', height: 'sm',
+      color: '#7c3aed',
+      action: {
+        type: 'uri',
+        label: 'กรอกข้อมูลเพิ่มเติม',
+        uri: options.additionalInfoUrl,
+      },
+    }]
     : [];
 
   // footer: ปุ่มข้อมูลเพิ่มเติม, ปุ่มดูรูปแรก (กรณีมีรูปเดียว) หรือลิงก์ตรวจสอบสถานะ
   const imageFooterContents = completionImages.length === 1
     ? [{
-        type: 'button', style: 'primary', height: 'sm',
-        color: '#1a5f9e',
-        action: {
-          type: 'uri',
-          label: '🖼️ ดูรูปผลการดำเนินงาน',
-          uri: `${domain}/uploads/${completionImages[0]}`,
-        },
-      }]
+      type: 'button', style: 'primary', height: 'sm',
+      color: '#1a5f9e',
+      action: {
+        type: 'uri',
+        label: '🖼️ ดูรูปผลการดำเนินงาน',
+        uri: `${domain}/uploads/${completionImages[0]}`,
+      },
+    }]
     : completionImages.length > 1
-    ? [...completionImages.slice(0, 3).map((img, i) => ({
+      ? [...completionImages.slice(0, 3).map((img, i) => ({
         type: 'button', style: 'secondary', height: 'sm',
         action: {
           type: 'uri',
@@ -202,7 +265,7 @@ const pushStatusUpdate = async (ticket, note = '', options = {}) => {
           uri: `${domain}/uploads/${img}`,
         },
       }))]
-    : [];
+      : [];
 
   const footerContents = [...additionalInfoButton, ...imageFooterContents];
 
@@ -223,16 +286,26 @@ const pushStatusUpdate = async (ticket, note = '', options = {}) => {
       }
     );
     footerContents.push(
-      { type: 'button', style: 'secondary', height: 'sm',
-        action: { type: 'postback', label: '⭐ 1 ดาว — ควรปรับปรุง', data: `action=satisfy&ticketId=${tid}&score=1` } },
-      { type: 'button', style: 'secondary', height: 'sm',
-        action: { type: 'postback', label: '⭐⭐ 2 ดาว — พอใช้', data: `action=satisfy&ticketId=${tid}&score=2` } },
-      { type: 'button', style: 'secondary', height: 'sm',
-        action: { type: 'postback', label: '⭐⭐⭐ 3 ดาว — ปานกลาง', data: `action=satisfy&ticketId=${tid}&score=3` } },
-      { type: 'button', style: 'primary', height: 'sm', color: '#2563eb',
-        action: { type: 'postback', label: '⭐⭐⭐⭐ 4 ดาว — ดี', data: `action=satisfy&ticketId=${tid}&score=4` } },
-      { type: 'button', style: 'primary', height: 'sm', color: '#16a34a',
-        action: { type: 'postback', label: '⭐⭐⭐⭐⭐ 5 ดาว — ดีมาก', data: `action=satisfy&ticketId=${tid}&score=5` } }
+      {
+        type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'postback', label: '⭐ 1 ดาว — ควรปรับปรุง', data: `action=satisfy&ticketId=${tid}&score=1` }
+      },
+      {
+        type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'postback', label: '⭐⭐ 2 ดาว — พอใช้', data: `action=satisfy&ticketId=${tid}&score=2` }
+      },
+      {
+        type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'postback', label: '⭐⭐⭐ 3 ดาว — ปานกลาง', data: `action=satisfy&ticketId=${tid}&score=3` }
+      },
+      {
+        type: 'button', style: 'primary', height: 'sm', color: '#2563eb',
+        action: { type: 'postback', label: '⭐⭐⭐⭐ 4 ดาว — ดี', data: `action=satisfy&ticketId=${tid}&score=4` }
+      },
+      {
+        type: 'button', style: 'primary', height: 'sm', color: '#16a34a',
+        action: { type: 'postback', label: '⭐⭐⭐⭐⭐ 5 ดาว — ดีมาก', data: `action=satisfy&ticketId=${tid}&score=5` }
+      }
     );
   }
 
@@ -310,22 +383,30 @@ const pushTicketConfirm = async (ticket, groupId = null) => {
       body: {
         type: 'box', layout: 'vertical', paddingAll: '16px',
         contents: [
-          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
-            { type: 'text', text: 'ชื่อ', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: ticket.displayName || '-', size: 'sm', flex: 3, wrap: true },
-          ]},
-          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
-            { type: 'text', text: 'เรื่อง', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: ticket.subject, size: 'sm', flex: 3, wrap: true, weight: 'bold' },
-          ]},
-          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
-            { type: 'text', text: 'เลขที่คำร้อง', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: ticket.ticketNo, size: 'sm', flex: 3, weight: 'bold', color: '#1a5f9e' },
-          ]},
-          { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
-            { type: 'text', text: 'วันที่', size: 'sm', color: '#888888', flex: 2 },
-            { type: 'text', text: dateStr, size: 'sm', flex: 3, wrap: true },
-          ]},
+          {
+            type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+              { type: 'text', text: 'ชื่อ', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: ticket.displayName || '-', size: 'sm', flex: 3, wrap: true },
+            ]
+          },
+          {
+            type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+              { type: 'text', text: 'เรื่อง', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: ticket.subject, size: 'sm', flex: 3, wrap: true, weight: 'bold' },
+            ]
+          },
+          {
+            type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+              { type: 'text', text: 'เลขที่คำร้อง', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: ticket.ticketNo, size: 'sm', flex: 3, weight: 'bold', color: '#1a5f9e' },
+            ]
+          },
+          {
+            type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+              { type: 'text', text: 'วันที่', size: 'sm', color: '#888888', flex: 2 },
+              { type: 'text', text: dateStr, size: 'sm', flex: 3, wrap: true },
+            ]
+          },
           { type: 'separator', margin: 'md' },
           { type: 'text', text: 'พิมพ์ "ตามเรื่อง" เพื่อตรวจสอบสถานะครับ', size: 'xs', color: '#aaaaaa', margin: 'md', wrap: true },
         ],
@@ -343,15 +424,15 @@ const pushTicketConfirm = async (ticket, groupId = null) => {
 const pushGroupWeeklySummary = async (groupId) => {
   const now = new Date();
 
-  // ช่วงสัปดาห์นี้: จันทร์ 00:00 → ศุกร์ 23:59
-  const dayOfWeek = now.getDay(); // 0=อา, 1=จ, ..., 5=ศ
-  const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+  // ช่วงสัปดาห์นี้: ศุกร์ที่แล้ว 17:00 → ศุกร์นี้ 17:00
+  const dayOfWeek = now.getDay(); // 0=อา, 1=จ, ..., 5=ศ, 6=ส
+  let diffToLastFriday = (dayOfWeek - 5 + 7) % 7;
+  if (diffToLastFriday === 0) diffToLastFriday = 7; // ถ้าวันนี้เป็นศุกร์ ให้นับศุกร์สัปดาห์ก่อนหน้า
   const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() + diffToMonday);
-  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(now.getDate() - diffToLastFriday);
+  weekStart.setHours(17, 0, 0, 0);
 
-  const weekEnd = new Date(now);
-  weekEnd.setHours(23, 59, 59, 999);
+  const weekEnd = now;
 
   const [newThisWeek, completedThisWeek, inProgress, pending, forwarded] = await Promise.all([
     Ticket.countDocuments({ createdAt: { $gte: weekStart, $lte: weekEnd } }),
@@ -414,6 +495,24 @@ const pushGroupWeeklySummary = async (groupId) => {
 // pushAdminBatchAlert — แจ้งกลุ่ม admin แบบรวมยอด วันละ 2 ครั้ง
 // fromTime, toTime: Date object ของช่วงเวลาที่ query
 // ============================================================
+const pushComplaintEntryAlertToActiveGroups = async () => {
+  const groups = await LineGroup.find({ isActive: true }, 'groupId groupName').lean();
+  if (!groups.length) {
+    console.log('[Complaint Entry] ไม่มีกลุ่ม active สำหรับส่ง Flex แจ้งเรื่อง');
+    return;
+  }
+
+  const baseLiffUrl = process.env.LIFF_ID ? `https://liff.line.me/${process.env.LIFF_ID}` : '';
+
+  for (const group of groups) {
+    const liffUrl = baseLiffUrl ? `${baseLiffUrl}?gid=${encodeURIComponent(group.groupId)}` : '';
+    const message = createComplaintEntryFlexMessage(liffUrl);
+
+    await lineClient.pushMessage({ to: group.groupId, messages: [message] });
+    console.log(`[Complaint Entry] ส่ง Flex แจ้งเรื่องให้กลุ่ม ${group.groupName || group.groupId}`);
+  }
+};
+
 const pushAdminBatchAlert = async (fromTime, toTime) => {
   const adminGroupId = process.env.LINE_ADMIN_ID;
   if (!adminGroupId || !adminGroupId.startsWith('C')) return;
@@ -453,8 +552,10 @@ const pushAdminBatchAlert = async (fromTime, toTime) => {
   });
 
   const footerContents = systemUrl
-    ? [{ type: 'button', style: 'primary', height: 'sm', color: '#1a5f9e',
-        action: { type: 'uri', label: 'เปิดระบบหลังบ้าน', uri: systemUrl } }]
+    ? [{
+      type: 'button', style: 'primary', height: 'sm', color: '#1a5f9e',
+      action: { type: 'uri', label: 'เปิดระบบหลังบ้าน', uri: systemUrl }
+    }]
     : [];
 
   const message = {
@@ -484,4 +585,11 @@ const pushAdminBatchAlert = async (fromTime, toTime) => {
   console.log(`[Admin Batch] ส่งแจ้งกลุ่ม admin: ${tickets.length} เรื่อง (${rangeStr})`);
 };
 
-module.exports = { pushStatusUpdate, pushTicketConfirm, pushAdminBatchAlert, pushGroupWeeklySummary };
+module.exports = {
+  createComplaintEntryFlexMessage,
+  pushStatusUpdate,
+  pushTicketConfirm,
+  pushAdminBatchAlert,
+  pushComplaintEntryAlertToActiveGroups,
+  pushGroupWeeklySummary,
+};

@@ -28,6 +28,8 @@ const ROLE_MAP = {
   executive:  'executive',
   manager:    'executive', // legacy: map manager → executive
   staff:      'staff',
+  visiter:    'visiter',
+  visitor:    'visiter',
   user:       'user',
 };
 

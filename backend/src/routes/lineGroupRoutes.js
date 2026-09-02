@@ -13,7 +13,6 @@ const lineClient = new messagingApi.MessagingApiClient({
 
 // ทุก route ต้อง login และเป็น admin ขึ้นไป
 router.use(requireAuth);
-router.use(requireRole('superadmin', 'admin'));
 
 // ============================================================
 // GET /api/line-groups
@@ -52,7 +51,7 @@ router.patch('/:id/toggle', requireSuperadmin, async (req, res) => {
 // PATCH /api/line-groups/:id/name
 // แก้ไขชื่อกลุ่ม (กรณีดึงชื่อไม่ได้อัตโนมัติ)
 // ============================================================
-router.patch('/:id/name', async (req, res) => {
+router.patch('/:id/name', requireRole('superadmin', 'admin'), async (req, res) => {
   try {
     const { groupName } = req.body;
     if (!groupName || !groupName.trim()) {
@@ -75,7 +74,7 @@ router.patch('/:id/name', async (req, res) => {
 // PATCH /api/line-groups/:id/member-count
 // แก้ไขจำนวนสมาชิกแบบ manual (เนื่องจาก LINE API ไม่ให้ข้อมูล)
 // ============================================================
-router.patch('/:id/member-count', async (req, res) => {
+router.patch('/:id/member-count', requireRole('superadmin', 'admin'), async (req, res) => {
   try {
     const { memberCount } = req.body;
     const count = parseInt(memberCount, 10);

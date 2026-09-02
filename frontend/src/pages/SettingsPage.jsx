@@ -8,10 +8,11 @@ const POLL_OPTIONS = [
   { value: 300, label: '5 นาที' },
 ];
 
-export default function SettingsPage({ showToast }) {
+export default function SettingsPage({ showToast, user }) {
   const [pollInterval, setPollInterval] = useState(60);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
+  const canEdit = user?.role === 'superadmin';
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +63,7 @@ export default function SettingsPage({ showToast }) {
                   value={opt.value}
                   checked={pollInterval === opt.value}
                   onChange={() => setPollInterval(opt.value)}
+                    disabled={!canEdit}
                   style={{ marginRight: 6 }}
                 />
                 {opt.label}
@@ -73,11 +75,15 @@ export default function SettingsPage({ showToast }) {
           </p>
         </div>
 
-        <div style={S.actions}>
-          <button style={S.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? 'กำลังบันทึก...' : '💾 บันทึก'}
-          </button>
-        </div>
+          <div style={S.actions}>
+            {canEdit ? (
+              <button style={S.saveBtn} onClick={handleSave} disabled={saving}>
+                {saving ? 'กำลังบันทึก...' : '💾 บันทึก'}
+              </button>
+            ) : (
+              <div style={S.hint}>โหมดอ่านอย่างเดียว</div>
+            )}
+          </div>
       </div>
 
     </div>

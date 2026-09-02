@@ -5,7 +5,7 @@ const { logAction, actorFromUser } = require('../utils/auditLog');
 
 const router = express.Router();
 
-router.use(requireAuth, requireRole('superadmin'));
+router.use(requireAuth, requireRole('superadmin', 'visiter'));
 
 const makeBackupFilename = () => {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');

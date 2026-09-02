@@ -1,7 +1,7 @@
 /**
  * quotaRoutes.js
  * ─────────────────────────────────────────────────────────────
- * Routes สำหรับ LINE Quota Dashboard — เฉพาะ superadmin
+ * Routes สำหรับ LINE Quota Dashboard — อ่านได้สำหรับ visiter, แก้ไขเฉพาะ superadmin
  */
 
 const express = require('express');
@@ -13,8 +13,8 @@ const Counter = require('../models/Counter');
 
 const router = express.Router();
 
-// ทุก route ต้อง login และเป็น superadmin
-router.use(requireAuth, requireRole('superadmin'));
+// ทุก route ต้อง login และอย่างน้อยเป็นผู้ใช้งานที่อ่านได้
+router.use(requireAuth, requireRole('superadmin', 'visiter'));
 
 // ============================================================
 // GET /api/quota/current
@@ -35,7 +35,7 @@ router.get('/current', async (req, res) => {
 // POST /api/quota/refresh
 // ดึงโควตาสดจาก LINE API แล้วบันทึก + คืนค่ากลับ
 // ============================================================
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', requireRole('superadmin'), async (req, res) => {
   try {
     const data = await checkLineQuota();
     res.json(data);
@@ -101,20 +101,27 @@ router.get('/push-stats', async (req, res) => {
     // ตัวแปรที่ใช้ร่วมกัน
     const daysPassed = now.getDate(); // วันที่ปัจจุบัน = จำนวนวันที่ผ่านมา (รวมวันนี้)
 
+    // นับจำนวนวันจันทร์-ศุกร์ที่ผ่านในเดือนนี้ (cron admin batch รันเฉพาะวันทำการ)
+    let weekdaysPassed = 0;
+    for (let d = 1; d <= daysPassed; d++) {
+      const dow = new Date(now.getFullYear(), now.getMonth(), d).getDay();
+      if (dow >= 1 && dow <= 5) weekdaysPassed++;
+    }
+
     // 4) แจ้งกลุ่ม admin แบบรวมยอด (pushAdminBatchAlert)
-    // Cron 2 ครั้ง/วัน (11:30 & 16:30) × วันที่ผ่าน × memberCount
+    // Cron 2 ครั้ง/วัน (07:45 & 16:30) จันทร์-ศุกร์ × วันทำการที่ผ่าน × memberCount
     let adminBatchAlert = 0;
     if (adminGroupId && adminGroupId.startsWith('C')) {
       const adminGroup = await LineGroup.findOne({ groupId: adminGroupId }).lean();
       const adminMemberCount = adminGroup?.memberCount || 1;
-      adminBatchAlert = 2 * daysPassed * adminMemberCount;
+      adminBatchAlert = 2 * weekdaysPassed * adminMemberCount;
     }
 
     // 5) สรุปประจำสัปดาห์ (pushGroupWeeklySummary)
     // Cron ทุกวันศุกร์ 17:00 × จำนวนศุกร์ที่ผ่าน × ผลรวม memberCount
     const totalMembersResult = await LineGroup.aggregate([
       { $match: { isActive: true } },
-      { $group: { _id: null, totalMembers: { $sum: '$memberCount' } }}
+      { $group: { _id: null, totalMembers: { $sum: '$memberCount' } } }
     ]);
     const totalMembersInActiveGroups = totalMembersResult[0]?.totalMembers ?? 0;
     const activeGroups = await LineGroup.countDocuments({ isActive: true });

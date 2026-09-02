@@ -51,6 +51,7 @@ const STAFF_ROLES = {
   ADMIN:      'admin',
   EXECUTIVE:  'executive',
   STAFF:      'staff',
+  VISITOR:    'visiter',
   USER:       'user',
 };
 
@@ -58,6 +59,7 @@ const STAFF_ROLES = {
 const UNRESTRICTED_ROLES = [
   STAFF_ROLES.SUPERADMIN,
   STAFF_ROLES.ADMIN,
+  STAFF_ROLES.VISITOR,
 ];
 
 // Roles ที่มีสิทธิ์เต็ม (ส่งต่อได้, เข้าสถิติได้) แต่จำกัดการมองเห็นตามหน่วยงาน

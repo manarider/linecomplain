@@ -345,7 +345,7 @@ router.post('/verify-email', async (req, res) => {
 
 // POST /api/wsp/tickets — เจ้าหน้าที่กรอกคำร้องแทนผู้ร้อง (walk-in / โทรศัพท์)
 // บันทึกลงระบบเดิม สถานะ "ระหว่างดำเนินการ" ทันที แล้วดำเนินการต่อผ่านระบบเดิม
-router.post('/tickets', async (req, res) => {
+router.post('/tickets', requireRole('superadmin', 'admin', 'executive', 'staff'), async (req, res) => {
   try {
     const {
       displayName, phone, email, subject, description,
@@ -422,7 +422,7 @@ router.post('/tickets', async (req, res) => {
 });
 
 // PATCH /api/wsp/tickets/:id/agency — จ่ายงาน / เปลี่ยนหน่วยรับผิดชอบ (สำนักการประปา)
-router.patch('/tickets/:id/agency', async (req, res) => {
+router.patch('/tickets/:id/agency', requireRole('superadmin', 'admin', 'executive', 'staff'), async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: 'รูปแบบ ID ไม่ถูกต้อง' });
@@ -499,7 +499,7 @@ router.patch('/tickets/:id/agency', async (req, res) => {
 });
 
 // PATCH /api/wsp/tickets/:id/cleanup — อัปเดต workflow การเก็บงาน
-router.patch('/tickets/:id/cleanup', async (req, res) => {
+router.patch('/tickets/:id/cleanup', requireRole('superadmin', 'admin', 'executive', 'staff'), async (req, res) => {
   // รับไฟล์ก่อน (ถ้ามี) แล้วค่อยประมวลผล
   try {
     await runCleanupUpload(req, res);

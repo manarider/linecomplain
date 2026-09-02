@@ -4,8 +4,8 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// ทุก route ต้อง login + superadmin เท่านั้น
-router.use(requireAuth, requireRole('superadmin'));
+// ทุก route ต้อง login + superadmin หรือ visiter
+router.use(requireAuth, requireRole('superadmin', 'visiter'));
 
 // ============================================================
 // GET /api/audit

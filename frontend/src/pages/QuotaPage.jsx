@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getQuotaCurrent, getQuotaHistory, refreshQuota, getQuotaPushStats } from '../api';
 
-export default function QuotaPage({ showToast }) {
+export default function QuotaPage({ showToast, user }) {
   const [current, setCurrent]     = useState(null);
   const [history, setHistory]     = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -49,6 +49,7 @@ export default function QuotaPage({ showToast }) {
   const isWarning = current?.isWarning;
   const percent   = current?.percent ?? 0;
   const unlimited = current?.monthlyLimit === -1;
+  const canRefresh = user?.role === 'superadmin';
 
   return (
     <div>
@@ -58,13 +59,15 @@ export default function QuotaPage({ showToast }) {
           <h2 style={S.title}>📡 LINE Quota</h2>
           <div style={S.sub}>ติดตามการใช้งานข้อความรายเดือน (อัปเดตอัตโนมัติทุกวัน 06:00 น.)</div>
         </div>
-        <button
-          style={{ ...S.btnRefresh, opacity: refreshing ? 0.6 : 1 }}
-          onClick={handleRefresh}
-          disabled={refreshing}
-        >
-          {refreshing ? '⏳ กำลังตรวจสอบ...' : '🔄 ตรวจสอบโควตา'}
-        </button>
+          {canRefresh && (
+            <button
+              style={{ ...S.btnRefresh, opacity: refreshing ? 0.6 : 1 }}
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              {refreshing ? '⏳ กำลังตรวจสอบ...' : '🔄 ตรวจสอบโควตา'}
+            </button>
+          )}
       </div>
 
       {/* ── Current Usage Card ───────────────────────────── */}

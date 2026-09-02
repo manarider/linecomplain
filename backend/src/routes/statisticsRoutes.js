@@ -4,8 +4,8 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const Ticket = require('../models/Ticket');
 const { TICKET_STATUS } = require('../config/constants');
 
-// ── เฉพาะ admin, executive, superadmin เท่านั้น ───────────
-router.use(requireAuth, requireRole('admin', 'executive', 'staff', 'superadmin'));
+// ── อ่านได้สำหรับ visiter และกลุ่ม staff ────────────────
+router.use(requireAuth, requireRole('admin', 'executive', 'staff', 'superadmin', 'visiter'));
 
 const parseYearParam = (value, fallback) => {
   if (value === undefined || value === null || value === '') return fallback;

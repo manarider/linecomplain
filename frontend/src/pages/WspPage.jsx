@@ -396,10 +396,14 @@ export default function WspPage({ user, showToast }) {
   // modal
   const [selectedId, setSelectedId] = useState(null);
 
-  // เฉพาะ dept ประปา (หรือ admin) จึงเห็นแถบสถิติ
+    // เฉพาะ dept ประปา, admin หรือ visiter จึงเห็นแถบสถิติ
   const canSeeStats = user && (
-    isAdmin(user) || user.subDepartment === 'สำนักการประปา'
+      isAdmin(user) || user.role === 'visiter' || user.subDepartment === 'สำนักการประปา'
   );
+    const canCreateTicket = user && (
+      isAdmin(user) || (['executive', 'staff'].includes(user.role) && user.subDepartment === 'สำนักการประปา')
+    );
+    const canViewCatalogs = user && (isAdmin(user) || user.role === 'visiter');
 
   // create ticket form
   const [form, setForm] = useState({ displayName: '', phone: '', notifyLineUserId: '', email: '', subject: '', description: '', wspReason: '', wspReasonOther: '', wspAgency: '' });
@@ -585,10 +589,10 @@ export default function WspPage({ user, showToast }) {
   };
 
   const TABS = [
-    { key: 'register', label: '📋 ทะเบียนคุม' },
-    { key: 'new', label: '➕ คำร้องใหม่' },
+      { key: 'register', label: '📋 ทะเบียนคุม' },
+      ...(canCreateTicket ? [{ key: 'new', label: '➕ คำร้องใหม่' }] : []),
     ...(canSeeStats ? [{ key: 'stats', label: '📊 สถิติและรายงาน' }] : []),
-    ...(isAdmin(user) ? [
+      ...(canViewCatalogs ? [
       { key: 'reasons', label: '📝 เหตุร้องทุกข์' },
       { key: 'agencies', label: '🏢 หน่วยรับผิดชอบ' },
     ] : []),

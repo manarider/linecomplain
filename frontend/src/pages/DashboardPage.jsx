@@ -103,6 +103,7 @@ export default function DashboardPage() {
   };
 
   const isFullAccess = user && FULL_ACCESS_ROLES.includes(user.role);
+  const canViewReadOnlyMenus = user && ['superadmin', 'admin', 'executive', 'staff', 'visiter'].includes(user.role);
   const isWspUser = user && (
     ['superadmin', 'admin'].includes(user.role) ||
     (['executive', 'staff'].includes(user.role) && user.subDepartment === 'สำนักการประปา')
@@ -156,7 +157,7 @@ export default function DashboardPage() {
           <div style={S.sidebarUser}>
             <div style={{ fontWeight: 700 }}>{user.firstName} {user.lastName}</div>
             <div style={S.roleBadge}>
-              {user.role === 'superadmin' ? '👑 Super Admin' : user.role === 'admin' ? '🔑 Admin' : user.role === 'executive' ? '🏅 Executive' : user.role === 'staff' ? '👤 Staff' : '👥 User'}
+              {user.role === 'superadmin' ? '👑 Super Admin' : user.role === 'admin' ? '🔑 Admin' : user.role === 'executive' ? '🏅 Executive' : user.role === 'staff' ? '👤 Staff' : user.role === 'visiter' ? '👁️ Visitor' : '👥 User'}
             </div>
             {user.subDepartment && (
               <div style={{ fontSize: '0.75rem', opacity: 0.75, marginTop: 4 }}>{user.subDepartment}</div>
@@ -169,25 +170,31 @@ export default function DashboardPage() {
             style={{ ...S.navItem, ...(activeMenu === 'tickets' ? S.navItemActive : {}) }}
             onClick={() => { setActiveMenu('tickets'); setSidebarOpen(false); }}
           >📋 รายการคำร้อง</div>
-          {user && ['admin', 'executive', 'staff', 'superadmin'].includes(user.role) && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'statistics' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('statistics'); setSidebarOpen(false); }}
             >📊 สถิติและรายงาน</div>
           )}
-          {user && (user.role === 'superadmin' || user.role === 'admin') && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'line-groups' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('line-groups'); setSidebarOpen(false); }}
             >💬 จัดการกลุ่ม LINE</div>
           )}
-          {user && (user.role === 'superadmin' || user.role === 'admin') && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'complainants' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('complainants'); setSidebarOpen(false); }}
             >👥 สถิติผู้ร้อง</div>
           )}
-          {user && user.role === 'superadmin' && (
+          {canViewReadOnlyMenus && (
+            <div
+              style={{ ...S.navItem, ...(activeMenu === 'line-users' ? S.navItemActive : {}) }}
+              onClick={() => { setActiveMenu('line-users'); setSidebarOpen(false); }}
+            >📱 ผู้ใช้ LINE</div>
+          )}
+          {canViewReadOnlyMenus && (
             <div
               style={{
                 ...S.navItem,
@@ -209,31 +216,31 @@ export default function DashboardPage() {
               onClick={() => { setActiveMenu('audit'); setSidebarOpen(false); }}
             >🗂️ Audit Log</div>
           )}
-          {user && user.role === 'superadmin' && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'backup' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('backup'); setSidebarOpen(false); }}
             >💾 Backup</div>
           )}
-          {user && user.role === 'superadmin' && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'public-fiscal' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('public-fiscal'); setSidebarOpen(false); }}
             >🌐 หน้าสถิติสาธารณะ</div>
           )}
-          {user && (user.role === 'superadmin' || user.role === 'admin') && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'satisfaction' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('satisfaction'); setSidebarOpen(false); }}
             >⭐ ประเมินความพึงพอใจ</div>
           )}
-          {isWspUser && (
+          {(isWspUser || user?.role === 'visiter') && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'wsp' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('wsp'); setSidebarOpen(false); }}
             >💧 สำนักการประปา</div>
           )}
-          {user && user.role === 'superadmin' && (
+          {canViewReadOnlyMenus && (
             <div
               style={{ ...S.navItem, ...(activeMenu === 'settings' ? S.navItemActive : {}) }}
               onClick={() => { setActiveMenu('settings'); setSidebarOpen(false); }}
@@ -287,7 +294,7 @@ export default function DashboardPage() {
             <ComplainantsPage showToast={showToast} />
           )}
           {activeMenu === 'quota' && (
-            <QuotaPage showToast={showToast} />
+            <QuotaPage showToast={showToast} user={user} />
           )}
           {activeMenu === 'audit' && (
             <AuditLogPage showToast={showToast} />
@@ -296,7 +303,7 @@ export default function DashboardPage() {
             <BackupPage showToast={showToast} />
           )}
           {activeMenu === 'settings' && (
-            <SettingsPage showToast={showToast} />
+            <SettingsPage showToast={showToast} user={user} />
           )}
           {activeMenu === 'satisfaction' && (
             <SatisfactionPage showToast={showToast} />

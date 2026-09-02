@@ -5,6 +5,7 @@ const LineGroup = require('../models/LineGroup');
 const Ticket = require('../models/Ticket');
 const Counter = require('../models/Counter');
 const { TICKET_STATUS } = require('../config/constants');
+const { createComplaintEntryFlexMessage } = require('../utils/lineNotify');
 
 const router = express.Router();
 const groupMemberCountCache = new Map();
@@ -128,63 +129,6 @@ const sendReplyOrPushToSource = async (event, messages, contextLabel) => {
     await client.pushMessage({ to, messages });
   }
 };
-
-// ── Flex Message: ปุ่มเปิด LIFF แจ้งเรื่อง ────────────────
-const createComplainFlexMessage = (liffUrl) => ({
-  type: 'flex',
-  altText: 'กดปุ่มด้านล่างเพื่อแจ้งเรื่อง',
-  contents: {
-    type: 'bubble',
-    size: 'mega',
-    header: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'text',
-          text: '📋 ระบบรับแจ้งเรื่อง',
-          weight: 'bold',
-          size: 'xl',
-          color: '#ffffff',
-        },
-      ],
-      backgroundColor: '#1a5f9e',
-      paddingAll: '20px',
-    },
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'text',
-          text: 'กรอกแบบฟอร์มแจ้งเรื่องผ่านระบบออนไลน์ได้เลยครับ',
-          wrap: true,
-          size: 'sm',
-          color: '#555555',
-        },
-      ],
-      paddingAll: '20px',
-    },
-    footer: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'button',
-          style: 'primary',
-          height: 'sm',
-          action: {
-            type: 'uri',
-            label: '📝 เข้าสู่ระบบแจ้งเรื่อง',
-            uri: liffUrl || `https://liff.line.me/${process.env.LIFF_ID}`,
-          },
-          color: '#1a5f9e',
-        },
-      ],
-      paddingAll: '15px',
-    },
-  },
-});
 
 // ── Flex Message: ตรวจสอบสถานะ ─────────────────────────────
 const createCheckStatusFlexMessage = () => ({
@@ -334,7 +278,7 @@ const handleEvent = async (event) => {
           }
         );
         memberCount = countResponse.data.count || 0;
-      } catch (_) {}
+      } catch (_) { }
 
       await LineGroup.findOneAndUpdate(
         { groupId },
@@ -404,7 +348,7 @@ const handleEvent = async (event) => {
     if (text === 'แจ้งเรื่อง' || text === 'ร้องเรียน') {
       const gid = groupId || '';
       const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}${gid ? '?gid=' + gid : ''}`;
-      const flexMsg = createComplainFlexMessage(liffUrl);
+      const flexMsg = createComplaintEntryFlexMessage(liffUrl);
       await sendReplyOrPushToSource(event, [flexMsg], 'แจ้งเรื่อง');
       return;
     }
@@ -446,9 +390,9 @@ const handleEvent = async (event) => {
       // แต่ละแถวกดได้เพื่อส่งเลขที่คำร้อง
       const rowItems = openTickets.flatMap((t, i) => {
         const statusColor = {
-          'รอรับเรื่อง':          '#e67e22',
-          'ระหว่างดำเนินการ':     '#2980b9',
-          'ส่งต่อ':               '#8e44ad',
+          'รอรับเรื่อง': '#e67e22',
+          'ระหว่างดำเนินการ': '#2980b9',
+          'ส่งต่อ': '#8e44ad',
         }[t.status] || '#888888';
 
         const row = {
@@ -530,7 +474,7 @@ const handleEvent = async (event) => {
     // ── คำสั่ง "id" (เฉพาะแชทส่วนตัว) ─────────────────────
     if (text.toLowerCase() === 'id') {
       console.log(`[id command] text="${text}", source.type=${event.source?.type}`);
-      
+
       // ตรวจสอบว่าเป็นแชทส่วนตัวเท่านั้น (ไม่ใช่กลุ่ม)
       if (event.source?.type === 'group' || event.source?.type === 'room') {
         await sendReplyOrPushToSource(event, [{ type: 'text', text: 'คำสั่ง "id" ใช้งานได้เฉพาะในแชทส่วนตัวเท่านั้นครับ 🙏\nกรุณาส่งข้อความมาที่แชทส่วนตัวกับบอทครับ' }], 'id');
@@ -539,7 +483,7 @@ const handleEvent = async (event) => {
 
       const userId = event.source.userId;
       console.log(`[id command] userId=${userId}`);
-      
+
       if (!userId) {
         await sendReplyOrPushToSource(event, [{ type: 'text', text: 'ไม่สามารถระบุ User ID ได้\nกรุณาลองใหม่อีกครั้งครับ 🙏' }], 'id');
         return;

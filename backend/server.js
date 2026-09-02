@@ -35,18 +35,18 @@ connectDB();
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'", "https://static.line-scdn.net", "https://static.cloudflareinsights.com", "https://liff.line.me"],
-      styleSrc:    ["'self'", "'unsafe-inline'"],
-      imgSrc:      ["'self'", "data:", "blob:", "https://profile.line-scdn.net", "https://obs.line-scdn.net"],
-      connectSrc:  ["'self'", "https://api.line.me", "https://access.line.me", "https://obs.line-scdn.net", "https://liff.line.me"],
-      fontSrc:     ["'self'", "data:"],
-      mediaSrc:    ["'self'", "data:"],
-      objectSrc:   ["'none'"],
-      frameSrc:    ["'self'", "https://access.line.me", "https://liff.line.me"],
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://static.line-scdn.net", "https://static.cloudflareinsights.com", "https://liff.line.me"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https://profile.line-scdn.net", "https://obs.line-scdn.net"],
+      connectSrc: ["'self'", "https://api.line.me", "https://access.line.me", "https://obs.line-scdn.net", "https://liff.line.me"],
+      fontSrc: ["'self'", "data:"],
+      mediaSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'self'", "https://access.line.me", "https://liff.line.me"],
       frameAncestors: ["'self'", "https://liff.line.me"],
-      baseUri:     ["'self'"],
-      formAction:  ["'self'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
     },
   },
@@ -217,7 +217,11 @@ app.listen(PORT, () => {
 
 // ── Scheduled LINE Notifications (node-cron) ───────────────
 const cron = require('node-cron');
-const { pushGroupWeeklySummary, pushAdminBatchAlert } = require('./src/utils/lineNotify');
+const {
+  pushGroupWeeklySummary,
+  pushAdminBatchAlert,
+  pushComplaintEntryAlertToActiveGroups,
+} = require('./src/utils/lineNotify');
 const { checkLineQuota } = require('./src/utils/lineQuota');
 const LineGroup = require('./src/models/LineGroup');
 
@@ -239,29 +243,34 @@ cron.schedule('0 6 * * *', () => {
   checkLineQuota().catch((e) => console.error('Cron quota error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-// 11:30 น. ทุกวัน → แจ้ง admin กลุ่ม: คำร้องที่เข้าช่วง 16:30 เมื่อวาน – 11:30 วันนี้
-cron.schedule('30 11 * * *', () => {
-  console.log('⏰ Cron: แจ้ง admin batch 11:30');
+// 07:45 น. จันทร์-ศุกร์ → แจ้ง admin กลุ่ม: คำร้องที่เข้าช่วง 16:30 เมื่อวาน – 07:45 วันนี้
+cron.schedule('45 7 * * 1-5', () => {
+  console.log('⏰ Cron: แจ้ง admin batch 07:45');
   const toTime = new Date();
   const fromTime = new Date();
   fromTime.setDate(fromTime.getDate() - 1);
   fromTime.setHours(16, 30, 0, 0);
-  pushAdminBatchAlert(fromTime, toTime).catch((e) => console.error('Cron admin-batch 11:30 error:', e.message));
+
+  pushAdminBatchAlert(fromTime, toTime)
+    .catch((e) => console.error('Cron admin-batch 07:45 error:', e.message));
+
+  pushComplaintEntryAlertToActiveGroups()
+    .catch((e) => console.error('Cron complaint-entry 07:45 error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-// 16:30 น. ทุกวัน → แจ้ง admin กลุ่ม: คำร้องที่เข้าช่วง 11:30 – 16:30 วันนี้
-cron.schedule('30 16 * * *', () => {
+// 16:30 น. จันทร์-ศุกร์ → แจ้ง admin กลุ่ม: คำร้องที่เข้าช่วง 07:45 – 16:30 วันนี้
+cron.schedule('30 16 * * 1-5', () => {
   console.log('⏰ Cron: แจ้ง admin batch 16:30');
   const toTime = new Date();
   const fromTime = new Date();
-  fromTime.setHours(11, 30, 0, 0);
+  fromTime.setHours(7, 45, 0, 0);
   pushAdminBatchAlert(fromTime, toTime).catch((e) => console.error('Cron admin-batch 16:30 error:', e.message));
 }, { timezone: 'Asia/Bangkok' });
 
-// 17:00 น. ทุกวันศุกร์ → สรุปยอดประจำสัปดาห์ (Flex Message)
+// 17:00 น. ทุกวันศุกร์ → สรุปยอดประจำสัปดาห์ (ศุกร์ที่แล้ว 17:00 – ศุกร์นี้ 17:00)
 cron.schedule('0 17 * * 5', () => {
   console.log('⏰ Cron: สรุปยอดประจำสัปดาห์ (ศุกร์) 17:00');
   runCronForAllActiveGroups(pushGroupWeeklySummary, 'weekly-summary');
 }, { timezone: 'Asia/Bangkok' });
 
-console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา | 11:30/16:30 แจ้ง admin | ศุกร์ 17:00 สรุปสัปดาห์) — ดึงกลุ่มจาก DB อัตโนมัติ');
+console.log('✅ Cron jobs ตั้งค่าแล้ว (06:00 ตรวจโควตา | จ-ศ 07:45/16:30 แจ้ง admin | ศุกร์ 17:00 สรุปสัปดาห์) — ดึงกลุ่มจาก DB อัตโนมัติ');
